@@ -5,6 +5,9 @@ https://github.com/Nialljb/xnat2bids
 
 ## Image preprocessing & analysis:
 
+_bash_  
+- HPC submission wrapper  
+
 _Jupyter_  
 - Volumetric analysis  
 - DTI preprocessing & analysis  
