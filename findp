@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# Function to quickly see if there are significant results from fsl randomise output in sub directories of current path
+# n.bourke@imperial.ac.uk
+
+for i in `find . -name \*tfce_corrp\*`; do j=`fslstats $i -l 0.95 -V `; echo $i $j; done
