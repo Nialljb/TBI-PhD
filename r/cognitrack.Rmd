@@ -1,0 +1,1039 @@
+---
+title: "COGNITRACK emotional analysis"
+output: html_notebook
+---
+
+Feb 2020
+
+# Notes
+ ## r conditional syntax
+https://www.dataquest.io/blog/control-structures-in-r-using-loops-and-if-else-statements/
+
+if (condition) {
+  code block 
+} else {
+  code block 
+}
+
+Pull in data parsed in MATLAB & adjust ID column headers to match demographics
+These datasets have been parsed by Maria in MATLAB from the raw datadrop.
+ > Match with demographics
+ > Correct ID label convention
+ > Align headers
+ > Group labels
+
+### Clean workspace
+```{r warning=FALSE}
+
+# Install dependencies ----
+rm(list= ls()) # clear screen
+options(scipen=999) # gets rid of scientific notation
+
+```
+
+### Load packages
+```{r warning=FALSE}
+library(reshape2)
+library(dplyr)
+
+library(psych)
+library(emmeans)
+
+library(ggplot2)
+library(ggExtra)
+library(ggpubr)
+library(cowplot) # ggdraw
+
+
+```
+
+## Formating options ##
+```{r, Formating options}
+
+if (!require("RColorBrewer")) {
+install.packages("RColorBrewer")
+library(RColorBrewer)
+}
+
+library("ggsci")
+
+## Formating options ##
+# show_col(pal_npg("nrc")(10))
+myPalette <- c("#3399FF","#FF0000")
+fillPalette <- (scale_fill_npg()) # (scale_fill_rickandmorty())
+colPalette <- (scale_color_npg()) # (scale_color_rickandmorty())
+npgGroupPalette <- c("#4DBBD5FF","#E64B35FF")
+npgAgentPalette <- c("#00A087FF","#3C5488FF")
+
+# Other colour options
+# scale_color_tron() # Good with dark theme
+
+# The errorbars overlapped, so use position_dodge to move them horizontally
+pd <- position_dodge(0.1) # move them .05 to the left and right 
+ebSize <- 1
+pointSize <- 3
+
+# Font type & size
+textOption <- element_text(family="Times", size = 22)
+nb_boxplot <- geom_boxplot(alpha = 0.7, size = 1, outlier.shape = NA)
+
+```
+
+
+# Initial raw data loading & parsing 
+
+  Save parsed output to csv to avoid reruning 
+
+```{r}
+
+# Load in initial dataframes 
+C.df <- read.csv('~/Google\ Drive/emo/parsing/rawData/emoControlData.csv')
+D.df <- read.csv('~/Google\ Drive/emo/parsing/rawData/emoDiscriminationData.csv')
+J.df <- read.csv('~/Google\ Drive/emo/parsing/rawData/JoormanData.csv')
+sct.df <- read.csv('~/Google\ Drive/emo/data/SCT.csv')
+
+# demographics
+demoC <- read.csv('~/Google\ Drive/emo/parsing/rawData/demo/emoCMatch2.csv')
+demoD <- read.csv('~/Google\ Drive/emo/parsing/rawData/demo/emoDMatch2.csv')
+demoJ <- read.csv('~/Google\ Drive/emo/parsing/rawData/demo/joormannMatch2.csv')
+pmh <- read.csv('~/Google\ Drive/emo/data/pmh.csv')
+
+## Initial dataframe manipulation
+# 1. Merge cognitive dataframe with demographics
+# 2. Extract single timepoint
+# 3. Adjust ID to "User" (requested by Maria)
+
+# Rename sessions column in R to match demographics
+colnames(J.df)[colnames(J.df)=="sesID"] <- "Session_ID"
+colnames(D.df)[colnames(D.df)=="sesID"] <- "Session_ID"
+colnames(C.df)[colnames(C.df)=="sesID"] <- "Session_ID"
+
+# Merge by User ID (must contain the same head in each dataframe)
+C.df_full <- merge(C.df, demoC, by.x = "Session_ID")
+D.df_full <- merge(D.df, demoD, by.x = "Session_ID")
+J.df_full <- merge(J.df, demoJ, by.x = "Session_ID")
+
+J.T1 <- J.df_full[!duplicated(J.df_full$Subject_ID),]
+C.T1 <- C.df_full[!duplicated(C.df_full$Subject_ID),]
+D.T1 <- D.df_full[!duplicated(D.df_full$Subject_ID),]
+
+# Rename a column in R
+colnames(J.T1)[colnames(J.T1)=="Subject_ID"] <- "User"
+colnames(C.T1)[colnames(C.T1)=="Subject_ID"] <- "User"
+colnames(D.T1)[colnames(D.T1)=="Subject_ID"] <- "User"
+colnames(sct.df)[colnames(sct.df)=="SubjID"] <- "User"
+
+
+# Joorman: Fix miscoding of IDs and add in a grouping variable
+
+#-- Fix misscoding of IDs --#
+testValue <- "hc"
+
+count <- 0
+for (val in J.T1$User) {
+  #print(val)
+  if (grepl(testValue, val)) {
+    tmp <- sub(".*hc*", "", val)
+    name <- (paste0("COAT_HC", tmp, collapse = NULL))
+    # J.T1$User[count] <-
+    levels(J.T1$User) <- c(levels(J.T1$User), name)    # add new level
+    J.T1$User[count+1] <- name
+    
+  }
+  count = count+1
+}
+
+##-- Create Group variable --#
+testValue <- "COAT_HC"
+testValue2 <- "COAT_"
+testValue3 <- "COAT0"
+testValue4 <- "COAT1"
+
+count <- 0
+for (val in J.T1$User) {
+  if (grepl(testValue, val)) {
+    J.T1$Group[count+1] <- "CON"
+  } else if (grepl(testValue2, val)) {
+    J.T1$Group[count+1] <- "TBI"
+  } else if (grepl(testValue3, val)) {
+    J.T1$Group[count+1] <- "TBI"
+  } else if (grepl(testValue4, val)) {
+    J.T1$Group[count+1] <- "TBI"
+  } else {
+    J.T1$Group[count+1] <- "unknown"
+  }
+  count = count+1
+}
+
+
+#Emotional Control: Fix miscoding of IDs and adding in a grouping variable
+
+#-- Fix misscoding of IDs --#
+testValue <- "hc"
+
+count <- 0
+for (val in C.T1$User) {
+  #print(val)
+  if (grepl(testValue, val)) {
+    tmp <- sub(".*hc*", "", val)
+    name <- (paste0("COAT_HC", tmp, collapse = NULL))
+    # J.T1$User[count] <-
+    levels(C.T1$User) <- c(levels(C.T1$User), name)    # add new level
+    C.T1$User[count+1] <- name
+  }
+  count = count+1
+}
+
+##-- Create Group variable --#
+testValue <- "COAT_HC"
+testValue2 <- "COAT_"
+testValue3 <- "COAT0"
+testValue4 <- "COAT1"
+
+count <- 0
+for (val in C.T1$User) {
+  if (grepl(testValue, val)) {
+    C.T1$Group[count+1] <- "CON"
+  } else if (grepl(testValue2, val)) {
+    C.T1$Group[count+1] <- "TBI"
+  } else if (grepl(testValue3, val)) {
+    C.T1$Group[count+1] <- "TBI"
+  } else if (grepl(testValue4, val)) {
+    C.T1$Group[count+1] <- "TBI"
+  } else {
+    C.T1$Group[count+1] <- "unknown"
+  }
+  count = count+1
+}
+
+
+#Emotional Discrimination: Fix miscoding of IDs and adding in a grouping variable
+
+#-- Fix misscoding of IDs --#
+testValue <- "hc"
+
+count <- 0
+for (val in D.T1$User) {
+  #print(val)
+  if (grepl(testValue, val)) {
+    tmp <- sub(".*hc*", "", val)
+    name <- (paste0("COAT_HC", tmp, collapse = NULL))
+    # J.T1$User[count] <-
+    levels(D.T1$User) <- c(levels(D.T1$User), name)    # add new level
+    D.T1$User[count+1] <- name
+  }
+  count = count+1
+}
+
+##-- Create Group variable --#
+testValue <- "COAT_HC"
+testValue2 <- "COAT_"
+testValue3 <- "COAT0"
+testValue4 <- "COAT1"
+
+count <- 0
+for (val in D.T1$User) {
+  if (grepl(testValue, val)) {
+    D.T1$Group[count+1] <- "CON"
+  } else if (grepl(testValue2, val)) {
+    D.T1$Group[count+1] <- "TBI"
+  } else if (grepl(testValue3, val)) {
+    D.T1$Group[count+1] <- "TBI"
+  } else if (grepl(testValue4, val)) {
+    D.T1$Group[count+1] <- "TBI"
+  } else {
+    D.T1$Group[count+1] <- "unknown"
+  }
+  count = count+1
+}
+
+
+#Emotional Discrimination: Fix miscoding of IDs and adding in a grouping variable
+
+#-- Fix misscoding of IDs --#
+testValue <- "hc"
+
+count <- 0
+for (val in sct.df$User) {
+  #print(val)
+  if (grepl(testValue, val)) {
+    tmp <- sub(".*hc*", "", val)
+    name <- (paste0("COAT_HC", tmp, collapse = NULL))
+    # J.T1$User[count] <-
+    levels(sct.df$User) <- c(levels(sct.df$User), name)    # add new level
+    sct.df$User[count+1] <- name
+  }
+  count = count+1
+}
+
+##-- Create Group variable --#
+testValue <- "COAT_HC"
+testValue2 <- "COAT_"
+testValue3 <- "COAT0"
+testValue4 <- "COAT1"
+
+count <- 0
+for (val in sct.df$User) {
+  if (grepl(testValue, val)) {
+    sct.df$Group[count+1] <- "CON"
+  } else if (grepl(testValue2, val)) {
+    sct.df$Group[count+1] <- "TBI"
+  } else if (grepl(testValue3, val)) {
+    sct.df$Group[count+1] <- "TBI"
+  } else if (grepl(testValue4, val)) {
+    sct.df$Group[count+1] <- "TBI"
+  } else {
+    sct.df$Group[count+1] <- "unknown"
+  }
+  count = count+1
+}
+
+# Set timepoints
+
+d <- sct.df # head(PMH.df, n=20)
+d$Username.String.x <- factor(sct.df$User)
+d$pmh.timeStamp <- factor(sct.df$D_SCT_timeStamp)
+
+out=NULL
+for (val in levels(d$Username.String.x)) {
+  #print(val)
+  subj <- filter(d, grepl(val, Username.String.x))
+  subj$pmh.timeStamp <- factor(subj$pmh.timeStamp)
+
+  n = length(subj$pmh.timeStamp)
+  for (i in 1:n) {
+    #print()
+    subj$timepoint[i] <- i
+  }
+  out=rbind(out,subj)
+}
+
+# Remove data with unknown grouping
+D.T1 <- D.T1[ which(D.T1$Group!='unknown'), ]
+C.T1 <- C.T1[ which(C.T1$Group!='unknown'), ]
+#J.T1 <- Jclean.df[ which(J.T1$Group!='unknown'), ]
+
+
+# Write dataframes out to csv
+#write.csv(J.T1, file = "~/Google\ Drive/emo/parsing/Joorman_T1.csv",row.names=FALSE)
+write.csv(C.T1, file = "~/Google\ Drive/emo/parsing/EM_Control_T1.csv",row.names=FALSE)
+write.csv(D.T1, file = "~/Google\ Drive/emo/parsing/EM_Discrimination_T1.csv",row.names=FALSE)
+write.csv(out, file = "~/Google\ Drive/emo/parsing/sct.csv",row.names=FALSE)
+
+
+# Merge with Adams dataframe
+### *Check merging correctly - maintain existing observations
+
+# # Match IDs with Adams convention
+# colnames(Jclean.df)[colnames(Jclean.df)=="User"] <- "SubjID"
+# colnames(C.T1)[colnames(C.T1)=="User"] <- "SubjID"
+# colnames(D.T1)[colnames(D.T1)=="User"] <- "SubjID"
+# 
+# Adam1 <- merge(withDemo.df, Jclean.df, by.x = "SubjID")
+# Adam2 <- merge(Adam1, C.T1, by.x = "SubjID")
+# Adam3 <- merge(Adam2, D.T1, by.x = "SubjID")
+
+```
+
+
+# Load cleaned dataframes
+
+```{r}
+# Something manual was done in excell for Joorman... 
+# Also scrubbed as there was a bug in the task!
+  #Jclean.df <- read.csv('~/Google\ Drive/emo/parsing/Joorman_T1_cleaned.csv')
+  
+  demo.df <- read.csv('~/Google Drive/Imperial/PhD/Thesis/analysis/app/cognitrackDemo.csv')
+    C.T1 <- read.csv('~/Google\ Drive/Imperial/emo/parsing/EM_Control_T1.csv')
+      D.T1 <- read.csv('~/Google\ Drive/Imperial/emo/parsing/EM_Discrimination_T1.csv')
+        sct.df <- read.csv('~/Google\ Drive/Imperial/emo/parsing/sct.csv')
+        
+  # Remove data with unknown grouping (need to manually check with enrolment log)    
+  D.T1 <- D.T1[ which(D.T1$Group!='unknown'), ]
+  C.T1 <- C.T1[ which(C.T1$Group!='unknown'), ]
+
+  EMD <- merge(D.T1, demo.df, by = "User")
+  EMC <- merge(C.T1, demo.df, by = "User")
+
+  
+# Getting some demographics for the methods section  
+describeBy(EMC$Age, EMC$Group)
+table(EMC$Gender, EMC$Group)
+
+table(EMC$TypeOfInjury)
+  
+tsi <- na.omit(EMC$MonthsSinceInjury)
+describeBy(tsi)
+sum(tsi==0)
+sum(tsi > 6)
+sum(tsi <= 6)
+
+```
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# It's data time
+
+
+## Emotinoal Discrimination
+There is an overall reduced response time for all emotional conditions in patients compared to controls for emotional discrimination. No difference cost effect RT is seen between groups for congruent and incongruent emotions. There is borderline significance for overall cost accuracy in the emotional discrimination but no difference is seen for individual emotions (power?)
+
+## Emotional Control
+There is a cost accuracy effect in patients but not controls for the happy condition (Inconguent accuracy is poorer than congruent). 
+
+
+# =============================
+# Emotional Discrimination
+# =============================
+
+# Emotional Discrimination total accuracy
+```{r}
+#nb_boxplot <- geom_boxplot(alpha = 0.7, size = 1, outlier.shape = NA)
+
+data <- EMD
+data$neutralACC <- (data$neutral_CongAcc + data$neutral_IncongAcc)
+data$fearfulACC <- (data$fearful_CongAcc + data$fearful_IncongAcc)
+data$angryACC <- (data$angry_CongAcc + data$angry_IncongAcc)
+data$happyACC <- (data$happy_CongAcc + data$happy_IncongAcc)
+
+data$totalAcc <- (data$neutralACC + data$fearfulACC + data$angryACC + data$happyACC)
+wilcox.test(data$totalAcc ~ data$Group)
+
+myVars <- c("Group", "neutralACC", "fearfulACC", "angryACC","happyACC")
+ED <- data[myVars]
+
+ED.m <- melt(ED, id = c("Group"))
+ED.m <- na.omit(ED.m)
+# Two independent sample comparisons after grouping the data by another variable:
+compare_means(value ~ Group, data = ED.m, group.by = "variable")
+
+# Create a multi-panel box plots facetted by group (here, “dose”):
+p <- ggboxplot(ED.m, x = "Group", y = "value",
+          color = "Group", palette = npgGroupPalette,
+          add = "jitter", aplha = 0.8,
+          facet.by = "variable", short.panel.labs = FALSE) +
+          ylab("Accuracy") +
+          scale_colour_manual(values=npgGroupPalette) +
+          theme(text = textOption, legend.text = textOption)
+
+          # Use only p.format as label. Remove method name.
+          p2 <- p + stat_compare_means(label = "p.format", label.x = 1.4,label.y = 3, size = 6)
+
+ggdraw(p2) 
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_facet_Acc.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_facet_Acc.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# # Some stats
+
+# # Run some models
+ m1 <- lm(value ~ variable*Group, data = ED.m)
+# 
+ Anova(m1, type="II")
+# #summary(m1)
+ lsm = lsmeans(m1, ~Group|variable)
+ contrast(lsm, interaction = "pairwise", adjust="tukey")
+ 
+# # Out of interest there is a difference in accuracy between emotional conditions 
+#   lsm = lsmeans(m1, ~variable|Group)
+#  contrast(lsm, interaction = "pairwise", adjust="tukey")
+ 
+# 
+# # sanity checking
+# newdata <- data[ which(data$ageCat=="60-70"), ]
+# 
+# t.test(data$emd.totalCorrect~ data$demo.sex)
+# summary(aov(data$emd.totalCorrect ~ data$demo.sex))
+# 
+# 
+# describeBy(data$emd.inCongAcc)
+# describeBy(data$emd.conAcc)
+# describeBy(data$emd.totalCorrect, data$demo.sex)
+# 
+# m2 <- lm(emd.rtCost ~ ageCat*demo.sex, data = data)
+# 
+# Anova(m2, type="II")
+# #summary(m1)
+# lsm = lsmeans(m2, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# t.test(data$emd.medianCongRT, data$emd.medianInCongRT)
+# 
+# describeBy(data$emd.medianCongRT)
+# describeBy(data$emd.medianInCongRT)
+
+```
+
+# Emotional Discrimination reaction time
+```{r}
+#nb_boxplot <- geom_boxplot(alpha = 0.7, size = 1, outlier.shape = NA)
+
+data <- EMD
+data$neutralACC <- (data$neutral_CongCorRT + data$neutral_IncongCorRT)
+data$fearfulACC <- (data$fearful_CongCorRT + data$fearful_IncongCorRT)
+data$angryACC <- (data$angry_CongCorRT + data$angry_IncongCorRT)
+data$happyACC <- (data$happy_CongCorRT + data$happy_IncongCorRT)
+
+myVars <- c("Group", "neutralACC", "fearfulACC", "angryACC","happyACC")
+ED <- data[myVars]
+
+ED.m <- melt(ED, id = c("Group"))
+ED.m <- na.omit(ED.m)
+# Two independent sample comparisons after grouping the data by another variable:
+compare_means(value ~ Group, data = ED.m, group.by = "variable")
+
+# Create a multi-panel box plots facetted by group (here, “dose”):
+p <- ggboxplot(ED.m, x = "Group", y = "value",
+          color = "Group", palette = npgGroupPalette,
+          add = "jitter",
+          facet.by = "variable", short.panel.labs = FALSE) +
+          ylab("Reaction Time") +
+          ylim(1500, 8000) +
+          scale_colour_manual(values=npgGroupPalette) +
+          theme(text = textOption, legend.text = textOption)
+
+          # Use only p.format as label. Remove method name.
+          p2 <- p + stat_compare_means(label = "p.format", label.x = 1.4,label.y = 8000, size = 6)
+
+ggdraw(p2) 
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_facet_rt.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_facet_rt.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+## Some stats
+## Run some models
+
+ m1 <- lm(value ~ variable*Group, data = ED.m)
+describeBy(ED.m)
+ Anova(m1, type="II")
+# #summary(m1)
+ lsm = lsmeans(m1, ~Group|variable)
+ contrast(lsm, interaction = "pairwise", adjust="tukey")
+ 
+ 
+```
+
+
+### RT cost for correct emotional discrimination
+```{r echo=TRUE, warning=FALSE}
+  #library(cowplot) 
+  
+  data <- EMD
+  data$Group <- droplevels(data$Group)
+
+  # Cost on the tablet is encoded in the wrong direction
+  data$rtCost <- (data$CongCorRT - data$InCongCorRT)  
+  measure <- data$rtCost # D.T1$costCorRT
+
+  outlierReplace = function(dataframe, cols, rows, newValue = NA) {
+    if (any(rows)) {
+        set(dataframe, rows, cols, newValue)
+    }
+}
+
+outlierReplace(data, "rtCost", which(data$rtCost < -500 ), NA)
+outlierReplace(data, "rtCost", which(data$rtCost > 1000), NA)
+#describeBy(data$rtCost, data$Group)
+
+    # Main plot
+pmain <- ggplot(data, aes(x = Group, y = measure, color = Group))+
+    geom_jitter() +
+    geom_boxplot(alpha = 0.7, size = 1, outlier.shape = NA) +
+    stat_compare_means(label.x = 1.3, size = 6) +
+    ggpubr::color_palette("jco")  +
+    #ylim(-300, 2000) +
+    labs(title = "Emotional discrimination") +
+    ylab("Cost correct RT") +
+    theme(text = textOption, axis.text = textOption) +
+    scale_colour_manual(values=npgGroupPalette) 
+    #scale_fill_manual(values=colPalette) + 
+      
+      
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+    geom_density(data = data, aes(x = measure, fill = Group), alpha = 0.7, size = 0.2) +
+    coord_flip() +
+    ggpubr::fill_palette("jco")  +
+    scale_fill_manual(values=npgGroupPalette)
+  
+
+p2 <- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+ggdraw(p2)  
+  
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_costRT.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+## Some stats
+## Run some models
+
+ m1 <- lm(rtCost ~ Group, data = data)
+# 
+ Anova(m1, type="II")
+# #summary(m1)
+ lsm = lsmeans(m1, ~Group) # |variable
+ contrast(lsm, interaction = "pairwise", adjust="tukey")
+ 
+```
+Several participants have a negative cost for RT - when these are excluded there is a significant effect
+
+
+# Emotional Discrimination accuracy cost
+```{r}
+
+nb_boxplot <- geom_boxplot(alpha = 0.7, size = 1, outlier.shape = NA)
+data <- EMD
+data$AccCost <- (data$Accuracy_EmCong - data$Accuracy_Incong)
+measure <- data$AccCost
+
+pmain <- ggplot(data, aes(x = Group, y = measure, color = Group))+
+            geom_jitter(size = pointSize) +
+            nb_boxplot +
+            stat_compare_means(label.x = 1.3, size = 6) +
+            # ggpubr::color_palette("jco")  +
+            ylab("Accuracy cost") +
+            scale_colour_manual(values=npgGroupPalette) +
+            theme(text = textOption, axis.text = textOption)
+            
+
+ggdraw(pmain) 
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_costAcc.png", plot = pmain, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_costAcc.pdf", plot = pmain, width = 12, height = 8, units = c("in"), dpi = 300)
+ 
+## Some stats
+## Run some models
+
+ m1 <- lm(AccCost ~ Group, data = data)
+# 
+ Anova(m1, type="II")
+# #summary(m1)
+ lsm = lsmeans(m1, ~Group) #|variable
+ contrast(lsm, interaction = "pairwise", adjust="tukey")
+ 
+```
+
+
+
+## Facet plot of accuracy cost across emotions (EMD)
+```{r fig.height=8, fig.width=12}
+
+data <- EMD
+myVars <- c("Group", "Accuracy_cost", "Accuracy_neutralCost", "Accuracy_fearfulCost","Accuracy_angryCost", "Accuracy_happyCost") # "Accuracy_DemoCost",
+DM <- data[myVars]
+
+DM$Accuracy_cost <- (DM$Accuracy_cost * -1)
+#DM$Accuracy_DemoCost <- (DM$Accuracy_DemoCost * -1)
+DM$Accuracy_neutralCost <- (DM$Accuracy_neutralCost * -1)
+DM$Accuracy_fearfulCost <- (DM$Accuracy_fearfulCost * -1)
+DM$Accuracy_angryCost <- (DM$Accuracy_angryCost * -1)
+DM$Accuracy_happyCost <- (DM$Accuracy_happyCost * -1)
+
+DM.m <- melt(DM, id = c("Group"))
+# Two independent sample comparisons after grouping the data by another variable:
+compare_means(value ~ Group, data = DM.m, 
+              group.by = "variable")
+
+# Create a multi-panel box plots facetted by group (here, “dose”):
+p <- ggboxplot(DM.m, x = "Group", y = "value",
+          color = "Group", palette = npgGroupPalette,
+          add = "jitter",
+          facet.by = "variable", short.panel.labs = FALSE) +
+          #ylim(-3, 3)
+          ylab("Accuracy cost") +
+          scale_colour_manual(values=npgGroupPalette) +
+          theme(text = textOption, legend.text = textOption)
+
+          # Use only p.format as label. Remove method name.
+          p2 <- p + stat_compare_means(label = "p.format", label.x = 1.4,label.y = 3, size = 6)
+
+ggdraw(p2) 
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_facetCostAcc.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_facetCostAcc.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+wilcox.test(DM$Accuracy_cost ~ DM$Group)
+```
+
+
+
+
+## Facet plot of RT cost across emotions (EMD)
+
+Removing the top end of controls for Anger cost TBI patients are significantly faster.
+```{r fig.height=8, fig.width=12}
+
+myVars <- c("Group", "costCorRT","cost_neutralCorRT", "cost_fearfulCorRT", "cost_angryCorRT","cost_happyCorRT")
+DM <- D.T1[myVars]
+
+
+# From matlab script
+# cost_angryCorRT = (angry_IncongCorRT - angry_CongCorRT);
+
+# DM$costCorRT <- (DM$costCorRT * -1)
+# DM$cost_neutralCorRT <- (DM$cost_neutralCorRT * -1)
+# DM$cost_fearfulCorRT <- (DM$cost_fearfulCorRT * -1)
+# DM$cost_angryCorRT <- (DM$cost_angryCorRT * -1)
+# DM$cost_happyCorRT <- (DM$cost_happyCorRT * -1)
+
+DM.m <- melt(DM, id = c("Group"))
+# Two independent sample comparisons after grouping the data by another variable:
+compare_means(value ~ Group, data = DM.m, group.by = "variable")
+
+# Create a multi-panel box plots facetted by group (here, “dose”):
+p <- ggboxplot(DM.m, x = "Group", y = "value",
+          color = "Group", palette = npgGroupPalette,
+          add = "jitter",
+          facet.by = "variable", short.panel.labs = FALSE) +
+          #ylim(-500, 500) +
+          ylab("RT cost") +
+          scale_colour_manual(values=npgGroupPalette) +
+          theme(text = textOption, legend.text = textOption)
+
+          # Use only p.format as label. Remove method name.
+          p2 <- p + stat_compare_means(label = "p.format", label.x = 1.4, size = 6)
+
+ggdraw(p2) 
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_facetCostRT.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emd_facetCostRT.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+wilcox.test(DM$cost_angryCorRT ~  DM$Group)
+
+```
+
+
+==========
+# Emotional control
+==========
+
+# Emotional Control
+```{r}
+nb_boxplot <- geom_boxplot(alpha = 0.7, size = 1, outlier.shape = NA)
+data <- C.T1
+data$AccCost <- (C.T1$Accuracy_Cong - C.T1$Accuracy_Incong)
+measure <- data$AccCost
+pmain <- ggplot(data, aes(x = Group, y = measure, color = Group))+
+            geom_jitter(size = pointSize) +
+            nb_boxplot +
+            stat_compare_means(label.x = 1.3, size = 6) +
+            #ggpubr::color_palette("jco")  +
+            ylab("Accuracy cost") +
+            theme(text = textOption, axis.text = textOption) +
+            colPalette
+ggdraw(pmain) 
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_costAcc.pdf", plot = pmain, width = 12, height = 8, units = c("in"), dpi = 300)
+```
+
+
+# Emotional Control accuracy
+  *No anger condition in the task
+  *Fearfull seem to be low compared to other emotions
+    *Possibly due to very poor incongruent performance or there was an issue in my matlab parsing 
+  
+```{r}
+
+data <- EMC
+data$neutralACC <- (data$neutral_CongAcc + data$neutral_IncongAcc)
+data$fearfulACC <- (data$fearful_CongAcc + data$fearful_IncongAcc)
+data$angryACC <- (data$angry_CongAcc ) #+ data$angry_IncongAcc
+data$happyACC <- (data$happy_CongAcc + data$happy_IncongAcc)
+
+myVars <- c("Group", "neutralACC", "fearfulACC", "happyACC", "angryACC") # "angryACC",
+EC <- data[myVars]
+
+EC.m <- melt(EC, id = c("Group"))
+# Two independent sample comparisons after grouping the data by another variable:
+compare_means(value ~ Group, data = EC.m, group.by = "variable")
+
+# Create a multi-panel box plots facetted by group (here, “dose”):
+p <- ggboxplot(EC.m, x = "Group", y = "value",
+          color = "Group", palette = npgGroupPalette,
+          add = "jitter",
+          facet.by = "variable", short.panel.labs = FALSE) +
+          ylab("Accuracy") +
+          scale_colour_manual(values=npgGroupPalette) +
+          theme(text = textOption, legend.text = textOption)
+
+          # Use only p.format as label. Remove method name.
+          p2 <- p + stat_compare_means(label = "p.format", label.x = 1.4,label.y = 6, size = 6)
+
+ggdraw(p2) 
+
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_facet_Acc.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_facet_Acc.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+## Some stats
+## Run some models
+
+m1 <- lm(value ~ variable*Group, data = EC.m)
+# 
+ Anova(m1, type="II")
+# #summary(m1)
+ lsm = lsmeans(m1, ~Group|variable)
+ contrast(lsm, interaction = "pairwise", adjust="tukey")
+ 
+ 
+```
+
+# EMOTIONAL CONTROL REACTION TIME
+```{r}
+
+data <- EMC
+data$neutralRT <- (data$neutral_CongCorRT + data$neutral_IncongCorRT)
+data$fearfulRT <- (data$fearful_CongCorRT + data$fearful_IncongCorRT)
+data$angryRT <- (data$angry_CongCorRT ) # + data$angry_IncongCorRT
+data$happyRT <- (data$happy_CongCorRT + data$happy_IncongCorRT)
+
+myVars <- c("Group", "neutralRT", "fearfulRT", "happyRT", "angryRT") 
+EC <- data[myVars]
+
+EC.m <- melt(EC, id = c("Group"))
+# Two independent sample comparisons after grouping the data by another variable:
+compare_means(value ~ Group, data = EC.m, group.by = "variable")
+
+# Create a multi-panel box plots facetted by group (here, “dose”):
+p <- ggboxplot(EC.m, x = "Group", y = "value",
+          color = "Group", palette = npgGroupPalette,
+          add = "jitter",
+          facet.by = "variable", short.panel.labs = FALSE) +
+          ylab("Reaction time") +
+          ylim(1500,8000) +
+          scale_colour_manual(values=npgGroupPalette) +
+          theme(text = textOption, legend.text = textOption)
+
+          # Use only p.format as label. Remove method name.
+          p2 <- p + stat_compare_means(label = "p.format", label.x = 1.4,label.y = 7900, size = 6)
+          # Replace sig values on plots with those from pairwise comparisons
+
+ggdraw(p2) 
+
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_facet_RT.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_facet_RT.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+## Some stats
+## Run some models
+
+m1 <- lm(value ~ variable*Group, data = EC.m)
+# 
+ Anova(m1, type="II")
+# #summary(m1)
+ lsm = lsmeans(m1, ~Group|variable)
+ contrast(lsm, interaction = "pairwise", adjust="tukey")
+```
+
+# In relation to PMHQ - REVISE
+```{r}
+data <- EMD
+
+PMH.df <- read.csv("~/Google\ Drive/Imperial/emo/cognitrack/cleaned_PMH.csv")
+PMH.df <- PMH.df[ which(PMH.df$timepoint == "1"),]
+names(PMH.df)[names(PMH.df) == "Username.String.x"] <- "User"
+data <- merge(data, PMH.df, by = "User")
+
+data$neutralACC <- (data$neutral_CongAcc + data$neutral_IncongAcc)
+data$happyACC <- (data$happy_CongAcc + data$happy_IncongAcc)
+
+
+pmain <- ggplot(data, aes(x = pmh.sad, y = totalAcc , color = Group))+
+    geom_point(size = pointSize) +
+    geom_smooth(method=lm) +
+    ggpubr::color_palette("jco") +
+    scale_colour_manual(values=npgGroupPalette) +
+    theme(text = textOption, legend.text = textOption)
+
+  # Marginal densities along x axis
+  xdens <- axis_canvas(pmain, axis = "x") +
+    geom_density(data = data, aes(x = pmh.sad , fill = Group), alpha = 0.7, size = 0.2) +
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette) +
+    theme(text = textOption, legend.text = textOption)
+
+  # Marginal densities along y axis
+  # Need to set coord_flip = TRUE, if you plan to use coord_flip()
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+    geom_density(data = data, aes(x = totalAcc, fill = Group), alpha = 0.7, size = 0.2 ) +
+    coord_flip() +
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette)
+
+  p1 <- insert_xaxis_grob(pmain, xdens, grid::unit(.2, "null"), position = "top")
+  p2<- insert_yaxis_grob(p1, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p2)
+
+  # ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/BDI_emd_totalCorrect.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# ## Stats
+# cor.test(data$pmh.sad, data$totalAcc, method="kendal")
+# 
+# # library(data.table)
+# outlierReplace = function(dataframe, cols, rows, newValue = NA) {
+#     if (any(rows)) {
+#         set(dataframe, rows, cols, newValue)
+#     }
+# }
+# 
+# outlierReplace(df, "Acc_cost", which(df$Acc_cost > 0.2), NA)
+# qplot(data = df, x = Acc_cost) + ylab("InCong-Cong accuracy")
+
+
+  outlierKD <- function(dt, var) {
+     var_name <- eval(substitute(var),eval(dt))
+     na1 <- sum(is.na(var_name))
+     m1 <- mean(var_name, na.rm = T)
+     par(mfrow=c(2, 2), oma=c(0,0,3,0))
+     boxplot(var_name, main="With outliers")
+     hist(var_name, main="With outliers", xlab=NA, ylab=NA)
+     outlier <- boxplot.stats(var_name)$out
+     mo <- mean(outlier)
+     var_name <- ifelse(var_name %in% outlier, NA, var_name)
+     boxplot(var_name, main="Without outliers")
+     hist(var_name, main="Without outliers", xlab=NA, ylab=NA)
+     title("Outlier Check", outer=TRUE)
+     na2 <- sum(is.na(var_name))
+     cat("Outliers identified:", na2 - na1, "n")
+     cat("Propotion (%) of outliers:", round((na2 - na1) / sum(!is.na(var_name))*100, 1), "n")
+     cat("Mean of the outliers:", round(mo, 2), "n")
+     m2 <- mean(var_name, na.rm = T)
+     cat("Mean without removing outliers:", round(m1, 2), "n")
+     cat("Mean if we remove outliers:", round(m2, 2), "n")
+     response <- readline(prompt="Do you want to remove outliers and to replace with NA? [yes/no]: ")
+     if(response == "y" | response == "yes"){
+          dt[as.character(substitute(var))] <- invisible(var_name)
+          assign(as.character(as.list(match.call())$dt), dt, envir = .GlobalEnv)
+          cat("Outliers successfully removed", "n")
+          return(invisible(dt))
+     } else{
+          cat("Nothing changed", "n")
+          return(invisible(var_name))
+     }
+  }
+  
+  
+  outlierKD(data, pmh.sad)
+  
+  cor.test(data$pmh.sad, data$totalAcc, method="kendal")
+  
+```
+
+
+
+
+# Emotional Control RT cost facet plot
+```{r fig.height=8, fig.width=12}
+
+myVars <- c("Group", "costCorRT","cost_neutralCorRT", "cost_fearfulCorRT", "cost_happyCorRT") # "cost_angryCorRT",
+CM <- C.T1[myVars]
+
+
+CM$costCorRT <- (CM$costCorRT * -1)
+#DM$Accuracy_DemoCost <- (DM$Accuracy_DemoCost * -1)
+CM$cost_neutralCorRT <- (CM$cost_neutralCorRT * -1)
+CM$cost_fearfulCorRT <- (CM$cost_fearfulCorRT * -1)
+#CM$cost_angryCorRT <- (CM$cost_angryCorRT * -1)
+CM$cost_happyCorRT <- (CM$cost_happyCorRT * -1)
+
+CM.m <- melt(CM, id = c("Group"))
+# Two independent sample comparisons after grouping the data by another variable:
+#compare_means(value ~ Group, data = CM.m, group.by = "variable")
+
+# Create a multi-panel box plots facetted by group (here, “dose”):
+p <- ggboxplot(CM.m, x = "Group", y = "value",
+          color = "Group", palette = npgGroupPalette,
+          add = "jitter",
+          facet.by = "variable", short.panel.labs = FALSE) +
+          #ylim(-3, 3)
+          ylab("RT cost") +
+          scale_colour_manual(values=npgGroupPalette) +
+          theme(text = textOption, legend.text = textOption)
+
+          # Use only p.format as label. Remove method name.
+          p2 <- p + stat_compare_means(label = "p.format", label.x = 1.4, size = 6)
+
+ggdraw(p2) 
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_facetCostRT.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_facetCostRT.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+## Some stats
+## Run some models
+
+m1 <- lm(value ~ variable*Group, data = CM.m)
+# 
+ Anova(m1, type="II")
+# #summary(m1)
+ lsm = lsmeans(m1, ~Group|variable)
+ contrast(lsm, interaction = "pairwise", adjust="tukey")
+ 
+```
+
+
+
+# Emotional Control accuracy cost facet plot
+```{r fig.height=8, fig.width=12}
+
+myVars <- c("Group", "Accuracy_cost","neutral_AccCost", "fearful_AccCost", "happy_AccCost") # "cost_angryCorRT",
+CM <- C.T1[myVars]
+
+
+CM$Accuracy_cost <- (CM$Accuracy_cost * -1)
+#DM$Accuracy_DemoCost <- (DM$Accuracy_DemoCost * -1)
+CM$neutral_AccCost <- (CM$neutral_AccCost * -1)
+CM$fearful_AccCost <- (CM$fearful_AccCost * -1)
+#CM$cost_angryCorRT <- (CM$cost_angryCorRT * -1)
+CM$happy_AccCost <- (CM$happy_AccCost * -1)
+
+CM.m <- melt(CM, id = c("Group"))
+# Two independent sample comparisons after grouping the data by another variable:
+#compare_means(value ~ Group, data = CM.m, group.by = "variable")
+
+# Create a multi-panel box plots facetted by group (here, “dose”):
+p <- ggboxplot(CM.m, x = "Group", y = "value",
+          color = "Group", palette = npgGroupPalette,
+          add = "jitter",
+          facet.by = "variable", short.panel.labs = FALSE) +
+          #ylim(-3, 3)
+          ylab("Accuracy cost") +
+          scale_colour_manual(values=npgGroupPalette) +
+          theme(text = textOption, legend.text = textOption)
+
+          # Use only p.format as label. Remove method name.
+          p2 <- p + stat_compare_means(label = "p.format", label.x = 1.4, size = 6)
+
+ggdraw(p2) 
+
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_facetCostAcc.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/cognitrack-emc_facetCostAcc.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+m1 <- lm(value ~ variable*Group, data = CM.m)
+# 
+ Anova(m1, type="II")
+# #summary(m1)
+ lsm = lsmeans(m1, ~Group|variable)
+ contrast(lsm, interaction = "pairwise", adjust="tukey")
+
+```
+
+
+
+
+
+---
+### BETA ###
+
+# Device analysis
+```{r}
+
+data <- C.T1
+measure <- data$Accuracy_cost
+pmain <- ggplot(data, aes(x = Device, y = measure, color = Device))+
+            geom_jitter() +
+            geom_boxplot() +
+            #stat_compare_means(label.x = 1.3, size = 6) +
+            ggpubr::color_palette("jco")  +
+            ylab("Cost correct RT") +
+            theme(text = element_text(size = 20), axis.text = element_text(size = 16)) +
+            colPalette
+pmain 
+```
+
+
+
+

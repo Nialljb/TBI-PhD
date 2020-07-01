@@ -1,0 +1,601 @@
+---
+title: "DREAM follow up analysis"
+output: html_notebook
+---
+
+This is an analysis of social cogniton data collected as part of a follow up with a subset of patients from the DREAM study. 
+
+
+```{r warning=FALSE}
+library(reshape2)
+library(ggplot2)
+library(psych)
+library(ggExtra)
+library(ggpubr)
+library(cowplot) 
+library(lme4) # Fixed
+library(lmerTest) # Mixed modeles
+library(car) # Anova
+library(data.table)
+
+```
+
+```{r}
+
+
+
+# Install dependencies ----
+rm(list= ls()) # clear screen
+options(scipen=999) # gets rid of scientific notation
+
+
+#### dataframes ----
+df<- read.csv('~/Dropbox/TBI Team Folder/TBI_Apathy/apathyDAT/SOC_DATABASE.csv')
+
+table(df$Group) # Display number of controls and patients
+describeBy(df$Age, df$Group)
+
+```
+
+```{r, Formating options}
+
+if (!require("RColorBrewer")) {
+install.packages("RColorBrewer")
+library(RColorBrewer)
+}
+
+library("ggsci")
+
+## Formating options ##
+# show_col(pal_npg("nrc")(10))
+myPalette <- c("#3399FF","#FF0000")
+fillPalette <- (scale_fill_npg()) # (scale_fill_rickandmorty())
+colPalette <- (scale_color_npg()) # (scale_color_rickandmorty())
+npgGroupPalette <- c("#4DBBD5FF","#E64B35FF")
+npgAgentPalette <- c("#00A087FF","#3C5488FF")
+
+# Other colour options
+# scale_color_tron() # Good with dark theme
+
+# The errorbars overlapped, so use position_dodge to move them horizontally
+pd <- position_dodge(0.1) # move them .05 to the left and right 
+ebSize <- 1
+pointSize <- 4
+
+# Font type & size
+textOption <- element_text(family="Times", size = 22)
+
+```
+
+# Summary table for behavioural measures 
+```{r}
+
+# Neuropysch summary table for social cognition paper
+#### Loop for extracting values for p-adjustment ####
+
+# Create a character vector of the variables of interest
+measure <- c('MPI_abilitySubscale', 'MPI_adjustmentSubscale', 'MPI_participationSubscale', 'MPI_total', 'BDI', 'VAS', 'api_emotional', 'api_social', 'api_behavioural', 'numHighContactRoles', 'numPeople', 'embeddedNetworks', 'TOMMS', 'SF36_generalHealth', 'SF36_physicalFunctioning',  'SF36_emotionalWellbeing', 'SF36_socialFunctioning', 'SF36_pain', 'SF36_energyFatigue')
+
+
+# doesnt allow passing strings as variables, so this function deals with that
+str_eval=function(x) {return(eval(parse(text=x)))}
+pval <- c()
+W <- c()
+
+# Loop for extracting values
+for (value in measure) {
+  tmp <- 'df$'
+  result <- paste(tmp,value, sep="")
+  stat <- wilcox.test(str_eval(result) ~ Group, data=df)$statistic
+  p <- wilcox.test(str_eval(result) ~ Group, data=df)$p.value
+  pval <- append(pval, p)
+  W <- append(W, stat)
+}
+
+pAdj <- p.adjust(pval, method = "fdr", n = length(pval))
+stat.data <- data.frame(measure, W, pval, pAdj)
+
+```
+
+```{r}
+
+# doesnt allow passing strings as variables, so this function deals with that
+str_eval=function(x) {return(eval(parse(text=x)))}
+con_mean <- c()
+con_std <- c()
+pat_mean <- c()
+pat_std <- c()
+
+# Loop for extracting values
+for (value in measure) {
+  tmp <- 'df$'
+  result <- paste(tmp,value, sep="")
+  
+  con_m <- describeBy(str_eval(result),  df$Group)$CON[['mean']]
+  con_sd <- describeBy(str_eval(result), df$Group)$CON[['sd']]
+
+  pat_m <- describeBy(str_eval(result), df$Group)$PAT[['mean']]
+  pat_sd <- describeBy(str_eval(result), df$Group)$PAT[['sd']]
+   
+  con_mean <- append(con_mean, con_m)
+  con_std <- append(con_std, con_sd)
+  pat_mean <- append(pat_mean, pat_m)
+  pat_std <- append(pat_std, pat_sd)
+}
+
+sum.data <- data.frame(measure, con_mean, con_std, pat_mean, pat_std)
+
+
+measure =  2.19
+nm=((measure - 4)*(-1)) 
+nm
+
+```
+
+
+
+
+#### Apathy & Motivation analysis
+The distributions for emotional discrimination accuracy appear to seperate between groups however a sifnificant difference is not seen.
+No relationship is seen with apathy and emotional recognition. 
+
+# API encoded incorrectly prior to Feb 2019 (this data) - invert scores
+```{r}
+
+measure=df$api_total
+nm=((measure - 4)*(-1)) # review this https://stackoverflow.com/questions/26877917/reverse-scoring-items
+wilcox.test(nm ~ df$Group)
+
+measure=df$api_social
+nm=((measure - 4)*(-1)) # review this https://stackoverflow.com/questions/26877917/reverse-scoring-items
+wilcox.test(nm ~ df$Group)
+
+# select variables
+df.test <- df[c(1, 9, 46:48)]
+df.test.m <- melt(df.test, id = c("ID", "Group"))
+
+# Models
+# F_model <- lm(value ~ variable + Agent + Group + variable:Agent + variable:Group + Agent:Group, data=df.m)
+M_model <- lmer(value ~ variable + Group + variable:Group + (1|ID), data=df.test.m)
+
+#anova(model)
+Anova(M_model, type="II")
+lsm = lsmeans(M_model, ~Group|variable) 
+contrast(lsm, interaction = "pairwise", adjust="tukey")
+
+```
+There is a significant difference between groups for total apathy score. Investigating the subscales this is driven by behavior and emotional but is not seen for social. 
+
+# Plotting results for behavioural apathy
+```{r}
+
+measure=df$api_behavioural
+nm=((measure - 4)*(-1)) # review this https://stackoverflow.com/questions/26877917/reverse-scoring-items
+
+  pmain <- ggplot(df, aes(x = Group, y = nm, color = Group)) +
+            geom_jitter(size = pointSize) +
+            geom_boxplot(alpha = 0.7) +
+            stat_compare_means(label.x = 1.3, label.y = 3.5, size = 6, show.legend = FALSE) +
+            scale_colour_manual(values=npgGroupPalette) + 
+            ylab("Behavioural Activation") +
+            theme(text = element_text(size=24), legend.text = element_text(size = 20))
+  
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE)+
+    geom_density(data = df, aes(x = nm, fill = Group),
+                 alpha = 0.7, size = 0.2)+
+    coord_flip()+
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette) +
+    theme(text = element_text(size=18), legend.text = element_text(size = 14))
+  
+  p2<- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p2)  
+  
+  ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/api_behav.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+    ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/api_behav.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+  
+```
+
+
+
+# emd total correct
+```{r}
+# Main plot
+  pmain <- ggplot(df, aes(x = Group, y = EM_totalCorrect, color = Group))+
+    geom_jitter(size = pointSize, show.legend = F) +
+    geom_boxplot(alpha = 0.7, size = 1, show.legend = F) +
+    stat_compare_means(label.x = 1.3, size = 6, show.legend = F) +
+    ggpubr::color_palette("jco") +
+    scale_colour_manual(values=npgGroupPalette) +
+    ylab("Total correct") +
+    scale_x_discrete(labels=c("PAT" = "Patient", "CON" = "Control")) +
+    theme(text = textOption, legend.text = textOption) #element_text(size=20), legend.text = element_text(size = 20
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE)+
+    geom_density(data = df, aes(x = EM_totalCorrect, fill = Group), alpha = 0.7, size = 0.2)+
+    coord_flip()+
+    ggpubr::fill_palette("jco") +
+    theme(text = textOption, legend.text = textOption) +
+    scale_fill_manual(values=npgGroupPalette)
+
+  p2<- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p2)
+
+  ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/emd_totalCorrect.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300, useDingbats=FALSE)
+    ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/emd_totalCorrect.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+```
+
+
+
+```{r}
+  library(cowplot) 
+  # Main plot
+  pmain <- ggplot(df, aes(x = BDI, y = EM_totalCorrect, color = Group))+
+    geom_point(size = pointSize) +
+    geom_smooth(method=lm) +
+    ggpubr::color_palette("jco") +
+    ylab("Emotional discrimination (total correct)") +
+    scale_colour_manual(values=npgGroupPalette) +
+    theme(text = textOption, legend.text = textOption)
+  
+  # Marginal densities along x axis
+  xdens <- axis_canvas(pmain, axis = "x") +
+    geom_density(data = df, aes(x = BDI, fill = Group), alpha = 0.7, size = 0.2) +
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette) +
+    theme(text = textOption, legend.text = textOption)    
+
+  # Marginal densities along y axis
+  # Need to set coord_flip = TRUE, if you plan to use coord_flip()
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+    geom_density(data = df, aes(x = EM_totalCorrect, fill = Group), alpha = 0.7, size = 0.2 ) +
+    coord_flip() +
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette) 
+  
+  p1 <- insert_xaxis_grob(pmain, xdens, grid::unit(.2, "null"), position = "top")
+  p2<- insert_yaxis_grob(p1, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p2)  
+  
+  ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/BDI_emd_totalCorrect.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+  
+    ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/BDI_emd_totalCorrect.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+  
+## Stats
+cor.test(df$BDI, df$EM_totalCorrect)
+
+## Mixed effect model
+# select variables
+em.mod <- df[c(1, 9, 75, 44)]
+
+# Rearrange data
+em.mod.m <- melt(em.mod, id = c("ID", "Group"))
+# Models
+M_model <- lmer(value ~ variable + Group + Group:variable + (1|ID), data=em.mod.m)
+#anova(model)
+Anova(M_model, type="III")
+
+
+## Correlation per group
+# require(plyr)
+# func <- function(xx) {
+#   return(data.frame(COR = cor(xx$EM_totalCorrect, xx$BDI)))
+# }
+# xx <- df
+# ddply(xx, .(Group), func)
+
+```
+
+EM discrim & network
+```{r}
+
+  library(cowplot) 
+  # Main plot
+  pmain <- ggplot(df, aes(x = numPeople, y = EM_totalCorrect, color = Group)) +
+    geom_point(size = pointSize) + 
+    geom_smooth(method=lm) + 
+    xlim(0,50) +
+    ggpubr::color_palette("jco") +
+    scale_colour_manual(values=npgGroupPalette) +
+    xlab("Number of close contacts") +
+    ylab("Total correct") +
+    theme(text = textOption, legend.text = textOption)
+  
+  # Marginal densities along x axis
+  xdens <- axis_canvas(pmain, axis = "x") +
+    geom_density(data = df, aes(x = numPeople, fill = Group), alpha = 0.7, size = 0.2) +
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette) +
+    theme(text = textOption, legend.text = textOption)
+  
+  # Marginal densities along y axis
+  # Need to set coord_flip = TRUE, if you plan to use coord_flip()
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE)+
+    geom_density(data = df, aes(x = EM_totalCorrect, fill = Group),
+                 alpha = 0.7, size = 0.2)+
+    coord_flip()+
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette) 
+  
+  p1 <- insert_xaxis_grob(pmain, xdens, grid::unit(.2, "null"), position = "top")
+  p2<- insert_yaxis_grob(p1, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p2)  
+  
+  ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/EM_totalCorrect_network.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+  
+    ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/EM_totalCorrect_network.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+  
+  cor.test(df$EM_totalCorrect, df$numPeople, method="spearman")
+  describeBy(df$numPeople, df$Group)
+  wilcox.test(df$numPeople ~ df$Group) 
+  
+  
+## Mixed effect model
+# select variables
+em.mod <- df[c(1, 9, 75, 50)]
+
+# Rearrange data
+em.mod.m <- melt(em.mod, id = c("ID", "Group"))
+# Models
+M_model <- lmer(value ~ Group*variable + (1|ID), data=em.mod.m)
+Anova(M_model, type="II")
+lsm = lsmeans(M_model, ~Group)
+contrast(lsm, interaction = "pairwise", adjust="tukey")
+
+
+
+# # Models
+# M_model <- lm(EM_totalCorrect ~ numPeople*Group, data=df)
+# Anova(M_model, type="II")
+# lsm = lsmeans(M_model, ~Group)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# df2 <- df[which(df$Group=="PAT"),]
+# cor.test(df2$EM_totalCorrect, df2$numPeople, method="spearman")
+
+```
+
+
+# BDI & Social network size
+```{r}
+
+  library(cowplot) 
+  # Main plot
+  pmain <- ggplot(df, aes(x = BDI, y = numPeople, color = Group)) +
+    geom_point(size = pointSize) + 
+    geom_smooth(method=lm) + 
+    ylim(0,50) +
+    ggpubr::color_palette("jco") +
+    scale_colour_manual(values=npgGroupPalette) +
+    ylab("Number of people") +
+    theme(text = textOption, legend.text = textOption)
+  
+  # Marginal densities along x axis
+  xdens <- axis_canvas(pmain, axis = "x") +
+    geom_density(data = df, aes(x = BDI, fill = Group), alpha = 0.7, size = 0.2) +
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette) +
+    theme(text = textOption, legend.text = textOption)
+  
+  # Marginal densities along y axis
+  # Need to set coord_flip = TRUE, if you plan to use coord_flip()
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE)+
+    geom_density(data = df, aes(x = numPeople, fill = Group),
+                 alpha = 0.7, size = 0.2)+
+    coord_flip()+
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette) 
+  
+  p1 <- insert_xaxis_grob(pmain, xdens, grid::unit(.2, "null"), position = "top")
+  p2<- insert_yaxis_grob(p1, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p2)  
+  
+  ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/BDI_network.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+  
+    ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/BDI_network.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+  
+    cor.test(df$BDI, df$numPeople)
+  describeBy(df$numPeople, df$Group)
+  wilcox.test(df$numPeople ~ df$Group) 
+  
+  
+## Mixed effect model
+# select variables
+em.mod <- df[c(1, 9, 75, 50)]
+
+# Rearrange data
+em.mod.m <- melt(em.mod, id = c("ID", "Group"))
+# Models
+M_model <- lmer(value ~ variable + Group + Group:variable + (1|ID), data=em.mod.m)
+#anova(model)
+Anova(M_model, type="II")
+
+
+```
+
+
+
+
+
+
+## Emotional Discrimination RT
+```{r}
+#Emotional Discrimination RT
+    names(df)
+    
+    # Calculate the cost between congruent and incongruent
+    df$costRT <- (df$EM_InCongRT - df$EM_CongRT)
+    cost_percent <- (df$EM_InCongRT - df$EM_CongRT)/(df$EM_CongRT) # scales it 
+    
+    # t-test against 0
+    #plot(df$costRT)
+    t.test(df$costRT)
+    describeBy(df$costRT, df$Group)
+    #plot(cost_percent)
+    t.test(cost_percent)
+    
+# Checking assumptions of normality 
+  qplot(data = df, x = costRT) + ylab("InCong-Cong RT cost") 
+  
+# install.packages('data.table') may need to be run if you don't have the
+# package
+# library(data.table)
+outlierReplace = function(dataframe, cols, rows, newValue = NA) {
+    if (any(rows)) {
+        set(dataframe, rows, cols, newValue)
+    }
+}
+
+outlierReplace(df, "costRT", which(df$costRT < -100), NA)
+
+#qplot(data = df, x = costRT) + ylab("InCong-Cong RT cost")
+
+wilcox.test(df$costRT ~ df$Group)
+
+#library(cowplot) 
+# Main plot
+  pmain <- ggplot(df, aes(x = Group, y = costRT, colour=df$Group)) +
+              geom_jitter(size = pointSize, show.legend = F) +
+              geom_boxplot(alpha = 0.5, outlier.shape = NA, show.legend = F) +
+              stat_compare_means(label.x = 1.3, size = 6, show.legend = F) +
+              ggpubr::color_palette("jco") +
+              scale_colour_manual(values=npgGroupPalette) +
+              labs(y = "RT cost (ms)", colour = "Group") +
+              scale_x_discrete(labels=c("PAT" = "Patient", "CON" = "Control")) +
+              theme(text = textOption, legend.text = textOption)
+      
+  
+  # Marginal densities along y axis
+  # Need to set coord_flip = TRUE, if you plan to use coord_flip()
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+            geom_density(data = df, aes(x = costRT, fill = Group), alpha = 0.7, size = 0.2) +
+            coord_flip() +
+            ggpubr::fill_palette("jco") +
+            scale_fill_manual(values=npgGroupPalette) 
+
+  p2<- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p2) 
+  
+ ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/emd_costRT.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/emd_costRT.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+```
+
+
+
+
+
+
+```{r}
+
+
+  # Calculate the cost between congruent and incongruent accuracy  
+  cost <- (df$EM_inCongAcc - df$EM_congAcc) 
+  cost_percent <- (df$EM_inCongAcc - df$EM_congAcc)/(df$EM_congAcc) # scales it
+
+  plot(cost) 
+  t.test(cost)
+
+  plot(cost_percent) 
+  t.test(cost_percent)
+  describeBy(cost)
+  wilcox.test(cost_percent ~ df$Group)
+
+  library(cowplot) # Main plot 
+  pmain <- ggplot(df, aes(x = Group, y = cost_percent, colour=df$Group)) +
+    geom_jitter(size = pointSize) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA) + 
+    ggpubr::color_palette("jco") +
+    stat_compare_means(label.x = 1.3, size = 6) +
+    scale_colour_manual(values=npgGroupPalette) +
+    labs( y = "Accuracy cost", colour = "Group") +
+    theme(text = textOption, legend.text = textOption)
+
+
+  # Marginal densities along y axis # Need to set coord_flip = TRUE, if you plan to use coord_flip() 
+  
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) + 
+    geom_density(data = df, aes(x = cost_percent, fill = Group), alpha = 0.7, size = 0.2) + 
+    coord_flip() + 
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette)
+
+  p2<- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p2)
+
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/emd_costAcc.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+```
+
+p-value = 0.04643 rounded to 3 decimal places is 0.05 which is to be rejected. 
+
+# Same as above with DeHa removed 0.33
+```{r}
+
+# Calculate the cost between congruent and incongruent accuracy 
+df$Acc_cost <- (df$EM_inCongAcc - df$EM_congAcc)
+cost_percent <- (df$EM_inCongAcc - df$EM_congAcc)/(df$EM_congAcc) # scales it 
+
+#qplot(data = df, x = cost) + ylab("InCong-Cong accuracy") + 
+
+# install.packages('data.table') may need to be run if you don't have the
+# package
+# library(data.table)
+outlierReplace = function(dataframe, cols, rows, newValue = NA) {
+    if (any(rows)) {
+        set(dataframe, rows, cols, newValue)
+    }
+}
+
+outlierReplace(df, "Acc_cost", which(df$Acc_cost > 0.2), NA)
+qplot(data = df, x = Acc_cost) + ylab("InCong-Cong accuracy")
+
+
+  #plot(df$Acc_cost)
+  t.test(df$Acc_cost)
+  wilcox.test(df$Acc_cost ~ df$Group)
+
+  library(cowplot) 
+  # Main plot
+  pmain <- ggplot(df, aes(x = Group, y = Acc_cost, colour = Group)) +
+    geom_jitter(size = pointSize, show.legend = F) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA, show.legend = F) + 
+    ggpubr::color_palette("jco") +
+    stat_compare_means(label.x = 1.3, size = 6, show.legend = F) +
+    scale_colour_manual(values=npgGroupPalette) +
+    labs( y = "Accuracy cost", colour = "Group") +
+    scale_x_discrete(labels=c("PAT" = "Patient", "CON" = "Control")) +
+    theme(text = textOption, legend.text = textOption)
+      
+  
+  # Marginal densities along y axis
+  # Need to set coord_flip = TRUE, if you plan to use coord_flip()
+  ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE)+
+    geom_density(data = df, aes(x = cost_percent, fill = Group), alpha = 0.7, size = 0.2) + 
+    coord_flip() + 
+    ggpubr::fill_palette("jco") +
+    scale_fill_manual(values=npgGroupPalette)
+
+  p3<- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+  ggdraw(p3) 
+  
+  
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/emd_costAcc_norm.pdf", plot = p3, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/emd_costAcc_norm.png", plot = p3, width = 12, height = 8, units = c("in"), dpi = 300) 
+  
+  
+# fPlot <- ggarrange(
+#          p2,
+#          p3,
+#          nrow = 1, ncol = 2) # ,common.legend = TRUE, legend = "right"
+# 
+# ggdraw(fPlot)
+#   
+#     
+# ggsave("~/Google Drive/Imperial/PhD/Thesis/Ch6 Emotional processing/rPlots/soc/emd_costAcc_facet.pdf", plot = fPlot, width = 12, height = 8, units = c("in"), dpi = 300)
+    
+```
+After removing an outlier DeHa who had much greater accuracy for incongruent than congruent there is a significant difference between groups for accuracy cost. W = 355, p-value = 0.0422
+

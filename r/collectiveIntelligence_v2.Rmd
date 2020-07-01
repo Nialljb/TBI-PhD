@@ -1,0 +1,1981 @@
+---
+title: "Collective Intelligence Notebook"
+output: html_notebook
+---
+
+*Updated for thesis analysis 04th Feb 2020
+
+1. Check the raw data for coding of the Big 5 - updated!
+2. Labels of the congruent & incongruent tasks - Error in cost score (inverted)
+3. Investigate how these results relate to some of the other cognitive measures pulled out with the same participants.
+
+### Clean workspace
+```{r}
+rm(list= ls()) # clear screen
+options(scipen=999) # gets rid of scientific notation
+
+```
+
+### Load libraries and set formatting options
+```{r warning=FALSE}
+
+
+
+## One of these contain the set function for my outlier function..
+library(ggExtra)
+library(lme4) # Fixed
+library(lmerTest) # Mixed modeles
+library(car) # Anova
+library(data.table)
+
+
+
+# load packages useful for analysis
+# If not previosuly installed :  install.packages(name of package)
+library(psych) # good for describeBy command
+library(ggplot2) # makes pretty figures
+library(tidyr)
+library(reshape2)
+library(dplyr)
+library(ggpubr)
+library(tidyverse)
+library(cowplot)
+library(plyr)
+library(fmsb)
+library(lsmeans)
+
+#setwd("~/Google\ Drive/emo/")
+
+## Formating options ##
+
+if (!require("RColorBrewer")) {
+install.packages("RColorBrewer")
+library(RColorBrewer)
+}
+library("ggsci") # contains palettes for journals, tv shows
+
+
+## Formating options ##
+# show_col(pal_npg("nrc")(10))
+myPalette <- c("#3399FF","#FF0000")
+fillPalette <- (scale_fill_npg()) # (scale_fill_rickandmorty())
+colPalette <- (scale_color_npg()) # (scale_color_rickandmorty())
+npgGroupPalette <- c("#4DBBD5FF","#E64B35FF")
+npgGroupFill <- scale_fill_manual(values=c("#4DBBD5FF","#E64B35FF"))
+npgAgentPalette <- c("#00A087FF","#3C5488FF")
+
+# Other colour options
+# scale_color_tron() # Good with dark theme
+
+# The errorbars overlapped, so use position_dodge to move them horizontally
+pd <- position_dodge(0.1) # move them .05 to the left and right 
+ebSize <- 1
+pointSize <- 3
+aa <- 0.5 
+# Font type & size
+textOption <- element_text(family="Times", size = 22)
+
+# preset ggplot options
+nb_boxplot <- geom_boxplot(alpha = 0.7, size = 1, outlier.shape = NA)
+nb_theme   <- theme(text = textOption, legend.text = textOption)
+nbAlpha <- 'alpha = 0.5'
+
+```
+ 
+
+# Initial cleaned df
+```{r}
+#read in a dataframe
+  #colInt<- read.csv('~/Google\ Drive/emo/data/colInt.csv')
+  # names(colInt) # List of the variable headers you are working with
+  # levels(colInt$name) # check task
+  # # drop redundent columns
+  # myvars <- names(colInt) %in% c("X", "id", "domain", "studyid", "parameterset_id","response_id", "taskid", "type")
+  # df <- colInt[!myvars]
+  # write.csv(df, file = "~/Google\ Drive/emo/parsing/colInt_clean.csv",row.names=FALSE)
+```
+
+```{r}
+  df <- read.csv("~/Google\ Drive/Imperial/emo/parsing/colInt_clean.csv") 
+```
+
+```{r}
+
+for (task in levels(colInt$name)) {
+  tmp <- colInt[ which(colInt$name==task),]
+  write.csv(tmp, file = paste("~/Google\ Drive/emo/bbc/df/", task, ".csv", sep =""), row.names=FALSE)
+}
+
+setwd("/Users/nbourke/Google\ Drive/emo/bbc/df/")
+getwd()
+
+temp = list.files(pattern="*.csv")
+list2env(lapply(setNames(temp, make.names(gsub("*.csv$", "", temp))), read.csv), envir = .GlobalEnv)
+
+# Switching.Stroop
+# Syntax.Task
+# Sustained.Attention...Objects
+# Blocks
+# Latin.Square
+# Odd.One.Out
+# Odd.One.Out.relational
+# Orthographic.Discrimination
+
+
+```
+
+
+# Pulling tasks of interest
+```{r}
+
+c3nl <- df[ which(df$name=='c3nl Demographics Questionnaire'),]
+c3nl$user_id <- as.factor(c3nl$user_id)
+c3nl$body <- as.numeric(as.character(c3nl$body))
+
+
+demo <- df[ which(df$name=='Demographics Cognitron Stage 3'),]
+demo$user_id <- as.factor(demo$user_id)
+demo$text <- droplevels(demo$text)
+demo$body <- as.numeric(as.character(demo$body))
+
+bfi <- df[ which(df$name=='BFI questionnaire'),]
+bfi$user_id <- as.factor(bfi$user_id)
+bfi$body <- as.numeric(as.character(bfi$body))
+
+context <- df[ which(df$name=='Context Task'),]
+context$user_id <- as.factor(context$user_id)
+context$body <- as.numeric(as.character(context$body))
+
+emCon <- df[ which(df$name=='Emotional Control'),]
+emCon$user_id <- as.factor(emCon$user_id)
+emCon$body <- as.numeric(as.character(emCon$body))
+
+
+eq <- df[ which(df$name=='Empathy Quotient'),]
+eq$user_id <- as.factor(eq$user_id)
+eq$body <- as.numeric(as.character(eq$body))
+
+emDis <- df[ which(df$name=='Emotional discrimination'),]
+emDis$user_id <- as.factor(emDis$user_id)
+emDis$body <- as.numeric(as.character(emDis$body))
+
+sl <- df[ which(df$name=='Social Learning'),]
+sl$user_id <- as.factor(sl$user_id)
+sl$body <- as.numeric(as.character(sl$body))
+
+Joormann <- df[ which(df$name=='Joormann'),]
+Joormann$user_id <- as.factor(Joormann$user_id)
+Joormann$body <- as.numeric(as.character(Joormann$body))
+
+```
+
+## c3nl demo/cognitron
+
+```{r}
+
+ demoT.age <- demo[ which(demo$text=='RespObject.Q0.R'),] 
+ demoT.sex <- demo[ which(demo$text=='RespObject.Q1.S'),] # Check with Will 0 - male, 1 - female
+ demoT.lang <- demo[ which(demo$text=='RespObject.Q2.S'),] # ???
+ demoT.residence <- demo[ which(demo$text=='RespObject.Q3.S'),] # ???
+ demoT.device <- demo[ which(demo$text=='RespObject.Q3.S'),] # ???
+ 
+ demo.user_id <- demoT.residence$user_id
+ demo.age <- demoT.age$body
+ demo.sex <- demoT.sex$body
+ demo.lang <- demoT.lang$body
+ demo.residence <- demoT.residence$body
+ 
+demo.df <- data.frame(demo.user_id,demo.age,demo.sex,demo.lang,demo.residence)
+
+```
+
+## Pulling some questionnaire data
+```{r}
+
+# EQ
+EQ.df <- eq[ which(eq$text=='Scores.totalScore'),] 
+EQ.user_id <- EQ.df$user_id
+EQ.score <- EQ.df$body
+
+EQ.df <- data.frame(EQ.user_id, EQ.score)
+
+# Social context task
+context.df <- context[ which(context$text=='SummaryScore'),] 
+contextTask.user_id <- context.df$user_id
+contextTask.score <- context.df$body
+
+contextTask.df <- data.frame(contextTask.user_id, contextTask.score)
+
+
+# Social learning
+sl.df <- sl[ which(sl$text=='SummaryScore'),] 
+socialLearning.user_id <- sl.df$user_id
+socialLearning.score <- sl.df$body
+
+socialLearning.df <- data.frame(socialLearning.user_id, socialLearning.score)
+
+```
+
+
+# Big 5 inventory
+
+Results have been presented in different ways in the literature. 
+1. Mean of 1-5 scale 
+2. Raw 0-50
+3. Double raw 0-100
+4. POMP score = (scale - 1) * 25
+
+ Say you want to reverse questions Q1 and Q3
+ cols = c("Q1", "Q3")
+ data[ ,cols] = 6 - data[ ,cols]
+```{r}
+
+colnames(demo.df)[colnames(demo.df)=="demo.user_id"] <- "user_id"
+bfi <- merge(bfi, demo.df,  by = "user_id")
+
+bfi.q1 <- bfi[ which(bfi$text=='RespObject.Q0.S'),]
+bfi.q2 <- bfi[ which(bfi$text=='RespObject.Q1.S'),]
+bfi.q3 <- bfi[ which(bfi$text=='RespObject.Q2.S'),]
+bfi.q4 <- bfi[ which(bfi$text=='RespObject.Q3.S'),]
+bfi.q5 <- bfi[ which(bfi$text=='RespObject.Q4.S'),]
+bfi.q6 <- bfi[ which(bfi$text=='RespObject.Q5.S'),]
+bfi.q7 <- bfi[ which(bfi$text=='RespObject.Q6.S'),]
+bfi.q8 <- bfi[ which(bfi$text=='RespObject.Q7.S'),]
+bfi.q9 <- bfi[ which(bfi$text=='RespObject.Q8.S'),]
+bfi.q10 <- bfi[ which(bfi$text=='RespObject.Q9.S'),]
+bfi.q11 <- bfi[ which(bfi$text=='RespObject.Q10.S'),]
+bfi.q12 <- bfi[ which(bfi$text=='RespObject.Q11.S'),]
+bfi.q13 <- bfi[ which(bfi$text=='RespObject.Q12.S'),]
+bfi.q14 <- bfi[ which(bfi$text=='RespObject.Q13.S'),]
+bfi.q15 <- bfi[ which(bfi$text=='RespObject.Q14.S'),]
+bfi.q16 <- bfi[ which(bfi$text=='RespObject.Q15.S'),]
+bfi.q17 <- bfi[ which(bfi$text=='RespObject.Q16.S'),]
+bfi.q18 <- bfi[ which(bfi$text=='RespObject.Q17.S'),]
+bfi.q19 <- bfi[ which(bfi$text=='RespObject.Q18.S'),]
+bfi.q20 <- bfi[ which(bfi$text=='RespObject.Q19.S'),]
+bfi.q21 <- bfi[ which(bfi$text=='RespObject.Q20.S'),]
+bfi.q22 <- bfi[ which(bfi$text=='RespObject.Q21.S'),]
+bfi.q23 <- bfi[ which(bfi$text=='RespObject.Q22.S'),]
+bfi.q24 <- bfi[ which(bfi$text=='RespObject.Q23.S'),]
+bfi.q25 <- bfi[ which(bfi$text=='RespObject.Q24.S'),]
+bfi.q26 <- bfi[ which(bfi$text=='RespObject.Q25.S'),]
+bfi.q27 <- bfi[ which(bfi$text=='RespObject.Q26.S'),]
+bfi.q28 <- bfi[ which(bfi$text=='RespObject.Q27.S'),]
+bfi.q29 <- bfi[ which(bfi$text=='RespObject.Q28.S'),]
+bfi.q30 <- bfi[ which(bfi$text=='RespObject.Q29.S'),]
+bfi.q31 <- bfi[ which(bfi$text=='RespObject.Q30.S'),]
+bfi.q32 <- bfi[ which(bfi$text=='RespObject.Q31.S'),]
+bfi.q33 <- bfi[ which(bfi$text=='RespObject.Q32.S'),]
+bfi.q34 <- bfi[ which(bfi$text=='RespObject.Q33.S'),]
+bfi.q35 <- bfi[ which(bfi$text=='RespObject.Q34.S'),]
+bfi.q36 <- bfi[ which(bfi$text=='RespObject.Q35.S'),]
+bfi.q37 <- bfi[ which(bfi$text=='RespObject.Q36.S'),]
+bfi.q38 <- bfi[ which(bfi$text=='RespObject.Q37.S'),]
+bfi.q39 <- bfi[ which(bfi$text=='RespObject.Q38.S'),]
+bfi.q40 <- bfi[ which(bfi$text=='RespObject.Q39.S'),]
+bfi.q41 <- bfi[ which(bfi$text=='RespObject.Q40.S'),]
+bfi.q42 <- bfi[ which(bfi$text=='RespObject.Q41.S'),]
+bfi.q43 <- bfi[ which(bfi$text=='RespObject.Q42.S'),]
+bfi.q44 <- bfi[ which(bfi$text=='RespObject.Q43.S'),]
+
+BFI.user_id <- bfi.q1$user_id
+BFI.s1  <- (bfi.q1$body + 1)
+BFI.s2  <- (bfi.q2$body + 1)
+BFI.s3  <- (bfi.q3$body + 1)
+BFI.s4  <- (bfi.q4$body + 1)
+BFI.s5  <- (bfi.q5$body + 1)
+BFI.s6  <- (bfi.q6$body + 1)
+BFI.s7  <- (bfi.q7$body + 1)
+BFI.s8  <- (bfi.q8$body + 1)
+BFI.s9  <- (bfi.q9$body + 1)
+BFI.s10 <- (bfi.q10$body + 1)
+BFI.s11 <- (bfi.q11$body + 1)
+BFI.s12 <- (bfi.q12$body + 1)
+BFI.s13 <- (bfi.q13$body + 1)
+BFI.s14 <- (bfi.q14$body + 1)
+BFI.s15 <- (bfi.q15$body + 1)
+BFI.s16 <- (bfi.q16$body + 1)
+BFI.s17 <- (bfi.q17$body + 1)
+BFI.s18 <- (bfi.q18$body + 1)
+BFI.s19 <- (bfi.q19$body + 1)
+BFI.s20 <- (bfi.q20$body + 1)
+BFI.s21 <- (bfi.q21$body + 1)
+BFI.s22 <- (bfi.q22$body + 1)
+BFI.s23 <- (bfi.q23$body + 1)
+BFI.s24 <- (bfi.q24$body + 1)
+BFI.s25 <- (bfi.q25$body + 1)
+BFI.s26 <- (bfi.q26$body + 1)
+BFI.s27 <- (bfi.q27$body + 1)
+BFI.s28 <- (bfi.q28$body + 1)
+BFI.s29 <- (bfi.q29$body + 1)
+BFI.s30 <- (bfi.q30$body + 1)
+BFI.s31 <- (bfi.q31$body + 1)
+BFI.s32 <- (bfi.q32$body + 1)
+BFI.s33 <- (bfi.q33$body + 1)
+BFI.s34 <- (bfi.q34$body + 1)
+BFI.s35 <- (bfi.q35$body + 1)
+BFI.s36 <- (bfi.q36$body + 1)
+BFI.s37 <- (bfi.q37$body + 1)
+BFI.s38 <- (bfi.q38$body + 1)
+BFI.s39 <- (bfi.q39$body + 1)
+BFI.s40 <- (bfi.q40$body + 1)
+BFI.s41 <- (bfi.q41$body + 1)
+BFI.s42 <- (bfi.q42$body + 1)
+BFI.s43 <- (bfi.q43$body + 1)
+BFI.s44 <- (bfi.q44$body + 1)
+
+
+# Recoding with reverse scoring
+
+# Raw
+# O <- (BFI.s5 + BFI.s10 + BFI.s15 + BFI.s20 + BFI.s25 + BFI.s30 + (6 - BFI.s35) + BFI.s40 + (6 - BFI.s41) + BFI.s44)
+# C <- (BFI.s3 + (6 - BFI.s8) + BFI.s13 + (6 - BFI.s18) + (6 - BFI.s23) + BFI.s28 + BFI.s33 + BFI.s38 + (6 - BFI.s43))
+# E <- (BFI.s1 + (6 -BFI.s1) + BFI.s11 + BFI.s16 + (6 - BFI.s21) + BFI.s26 + (6 - BFI.s31) + BFI.s36)
+# A <- ((6 - BFI.s2) + BFI.s7 + (6 - BFI.s12) + BFI.s17 + BFI.s22 + (6 - BFI.s27) + BFI.s32 + (6 - BFI.s37) + BFI.s42)
+# N <- (BFI.s4 + (6 - BFI.s9) + BFI.s14 + BFI.s19 + (6 - BFI.s24) + BFI.s29 + (6 - BFI.s34) + BFI.s39)
+# BFI.df <- data.frame(BFI.user_id, O, C, E, A, N)
+
+# Average of scale
+O <- (BFI.s5 + BFI.s10 + BFI.s15 + BFI.s20 + BFI.s25 + BFI.s30 + (6 - BFI.s35) + BFI.s40 + (6 - BFI.s41) + BFI.s44)/10
+C <- (BFI.s3 + (6 - BFI.s8) + BFI.s13 + (6 - BFI.s18) + (6 - BFI.s23) + BFI.s28 + BFI.s33 + BFI.s38 + (6 - BFI.s43))/10
+E <- (BFI.s1 + (6 -BFI.s1) + BFI.s11 + BFI.s16 + (6 - BFI.s21) + BFI.s26 + (6 - BFI.s31) + BFI.s36)/10
+A <- ((6 - BFI.s2) + BFI.s7 + (6 - BFI.s12) + BFI.s17 + BFI.s22 + (6 - BFI.s27) + BFI.s32 + (6 - BFI.s37) + BFI.s42)/10
+N <- (BFI.s4 + (6 - BFI.s9) + BFI.s14 + BFI.s19 + (6 - BFI.s24) + BFI.s29 + (6 - BFI.s34) + BFI.s39)/10
+BFI.df <- data.frame(BFI.user_id, O, C, E, A, N)
+
+# POMP
+BFI.s1  <- 6 - (bfi.q1$body + 1)
+BFI.s2  <- 6 - (bfi.q2$body + 1)
+BFI.s3  <- (bfi.q3$body + 1)
+BFI.s4  <- (bfi.q4$body + 1)
+BFI.s5  <- (bfi.q5$body + 1)
+BFI.s6  <- (bfi.q6$body + 1)
+BFI.s7  <- (bfi.q7$body + 1)
+BFI.s8  <- 6 - (bfi.q8$body + 1)
+BFI.s9  <- 6 - (bfi.q9$body + 1)
+BFI.s10 <- (bfi.q10$body + 1)
+BFI.s11 <- (bfi.q11$body + 1)
+BFI.s12 <- 6 - (bfi.q12$body + 1)
+BFI.s13 <- (bfi.q13$body + 1)
+BFI.s14 <- (bfi.q14$body + 1)
+BFI.s15 <- (bfi.q15$body + 1)
+BFI.s16 <- (bfi.q16$body + 1)
+BFI.s17 <- (bfi.q17$body + 1)
+BFI.s18 <- 6 - (bfi.q18$body + 1)
+BFI.s19 <- (bfi.q19$body + 1)
+BFI.s20 <- (bfi.q20$body + 1)
+BFI.s21 <- 6 - (bfi.q21$body + 1)
+BFI.s22 <- (bfi.q22$body + 1)
+BFI.s23 <- 6 - (bfi.q23$body + 1)
+BFI.s24 <- (bfi.q24$body + 1)
+BFI.s25 <- (bfi.q25$body + 1)
+BFI.s26 <- (bfi.q26$body + 1)
+BFI.s27 <- 6 - (bfi.q27$body + 1)
+BFI.s28 <- (bfi.q28$body + 1)
+BFI.s29 <- (bfi.q29$body + 1)
+BFI.s30 <- (bfi.q30$body + 1)
+BFI.s31 <- 6 - (bfi.q31$body + 1)
+BFI.s32 <- (bfi.q32$body + 1)
+BFI.s33 <- (bfi.q33$body + 1)
+BFI.s34 <- 6 - (bfi.q34$body + 1)
+BFI.s35 <- 6 - (bfi.q35$body + 1)
+BFI.s36 <- (bfi.q36$body + 1)
+BFI.s37 <- (bfi.q37$body + 1)
+BFI.s38 <- (bfi.q38$body + 1)
+BFI.s39 <- (bfi.q39$body + 1)
+BFI.s40 <- (bfi.q40$body + 1)
+BFI.s41 <- 6 - (bfi.q41$body + 1)
+BFI.s42 <- (bfi.q42$body + 1)
+BFI.s43 <- (bfi.q43$body + 1)
+BFI.s44 <- (bfi.q44$body + 1)
+
+
+POMP.s1  <- ((BFI.s1  - 1)  * 25)
+POMP.s2  <- ((BFI.s2  - 1)  * 25)
+POMP.s3  <- ((BFI.s3  - 1)  * 25)
+POMP.s4  <- ((BFI.s4  - 1)  * 25)
+POMP.s5  <- ((BFI.s5  - 1)  * 25)
+POMP.s6  <- ((BFI.s6  - 1)  * 25)
+POMP.s7  <- ((BFI.s7  - 1)  * 25)
+POMP.s8  <- ((BFI.s8  - 1)  * 25)
+POMP.s9  <- ((BFI.s9  - 1) * 25)
+POMP.s10 <- ((BFI.s10 - 1) * 25)
+POMP.s11 <- ((BFI.s11 - 1) * 25)
+POMP.s12 <- ((BFI.s12 - 1) * 25)
+POMP.s13 <- ((BFI.s13 - 1) * 25)
+POMP.s14 <- ((BFI.s14 - 1) * 25)
+POMP.s15 <- ((BFI.s15 - 1) * 25)
+POMP.s16 <- ((BFI.s16 - 1) * 25)
+POMP.s17 <- ((BFI.s17 - 1) * 25)
+POMP.s18 <- ((BFI.s18 - 1) * 25)
+POMP.s19 <- ((BFI.s19 - 1) * 25)
+POMP.s20 <- ((BFI.s20 - 1) * 25)
+POMP.s21 <- ((BFI.s21 - 1) * 25)
+POMP.s22 <- ((BFI.s22 - 1) * 25)
+POMP.s23 <- ((BFI.s23 - 1) * 25)
+POMP.s24 <- ((BFI.s24 - 1) * 25)
+POMP.s25 <- ((BFI.s25 - 1) * 25)
+POMP.s26 <- ((BFI.s26 - 1) * 25)
+POMP.s27 <- ((BFI.s27 - 1) * 25)
+POMP.s28 <- ((BFI.s28 - 1) * 25)
+POMP.s29 <- ((BFI.s29 - 1) * 25)
+POMP.s30 <- ((BFI.s30 - 1) * 25)
+POMP.s31 <- ((BFI.s31 - 1) * 25)
+POMP.s32 <- ((BFI.s32 - 1) * 25)
+POMP.s33 <- ((BFI.s33 - 1) * 25)
+POMP.s34 <- ((BFI.s34 - 1) * 25)
+POMP.s35 <- ((BFI.s35 - 1) * 25)
+POMP.s36 <- ((BFI.s36 - 1) * 25)
+POMP.s37 <- ((BFI.s37 - 1) * 25)
+POMP.s38 <- ((BFI.s38 - 1) * 25)
+POMP.s39 <- ((BFI.s39 - 1) * 25)
+POMP.s40 <- ((BFI.s40 - 1) * 25)
+POMP.s41 <- ((BFI.s41 - 1) * 25)
+POMP.s42 <- ((BFI.s42 - 1) * 25)
+POMP.s43 <- ((BFI.s43 - 1) * 25)
+POMP.s44 <- ((BFI.s44 - 1) * 25)
+
+
+Op <- (POMP.s5 + POMP.s10 + POMP.s15 + POMP.s20 + POMP.s25 + POMP.s30 + POMP.s35 + POMP.s40 + POMP.s41 + POMP.s44)/10
+# Openness: 5, 10, 15, 20, 25, 30, 35R, 40, 41R, 44
+
+Cp <- (POMP.s3 + POMP.s8 + POMP.s13 + POMP.s18 + POMP.s23 + POMP.s28 + POMP.s33 + POMP.s38 + POMP.s44)/9
+# Conscientiousness: 3, 8R, 13, 18R, 23R, 28, 33, 38, 43R 
+
+Ep <- (POMP.s1 + POMP.s6 + POMP.s11 + POMP.s16 + POMP.s21 + POMP.s26 + POMP.s31 + POMP.s36)/8
+# Extraversion: 1, 6R, 11, 16, 21R, 26, 31R, 36 
+
+Ap <- (POMP.s2 + POMP.s8 + POMP.s12 + POMP.s17 + POMP.s22 + POMP.s27 + POMP.s32 + POMP.s37 + POMP.s42)/9
+# Agreeableness: 2R, 7, 12R, 17, 22, 27R, 32, 37R, 42 
+
+Np <- (POMP.s4 + POMP.s9 + POMP.s14 + POMP.s19 + POMP.s24 + POMP.s29 + POMP.s34 + POMP.s39)/8
+# Neuroticism: 4, 9R, 14, 19, 24R, 29, 34R, 39
+
+POMP.df <- data.frame(BFI.user_id, Op, Cp, Ep, Ap, Np)
+
+```
+
+
+# Emotional control
+```{r}
+
+TMPemc.user_id <- emCon[ which(emCon$text=='user_id'),]
+TMPemc.conAcc <- emCon[ which(emCon$text=='Scores.congAcc'),] 
+TMPemc.inCongAcc <- emCon[ which(emCon$text=='Scores.inCongAcc'),] 
+TMPemc.medianCongRT <- emCon[ which(emCon$text=='Scores.medianCongRT'),] 
+TMPemc.medianCorrRT <- emCon[ which(emCon$text=='Scores.medianCorrRT'),] 
+TMPemc.medianInCongRT <- emCon[ which(emCon$text=='Scores.medianInCongRT'),] 
+TMPemc.medianRT <- emCon[ which(emCon$text=='Scores.medianRT'),] 
+TMPemc.totalCorrect <- emCon[ which(emCon$text=='Scores.totalCorrect'),] 
+
+emc.user_id <- TMPemc.totalCorrect$user_id 
+emc.conAcc <- TMPemc.conAcc$body
+emc.inCongAcc <- TMPemc.inCongAcc$body
+emc.medianCongRT <- TMPemc.medianCongRT$body
+emc.medianCorrRT <- TMPemc.medianCorrRT$body
+emc.medianInCongRT <- TMPemc.medianInCongRT$body
+emc.medianRT <- TMPemc.medianRT$body
+emc.totalCorrect <- TMPemc.totalCorrect$body
+
+emc.df <- data.frame(emc.user_id,emc.conAcc,emc.inCongAcc,emc.medianCongRT,emc.medianCorrRT,emc.medianInCongRT,emc.medianRT,emc.totalCorrect)
+
+
+```
+
+
+# Emotional control
+```{r}
+
+
+TMPemd.conAcc <- emDis[ which(emDis$text=='Scores.congAcc'),] 
+TMPemd.inCongAcc <- emDis[ which(emDis$text=='Scores.inCongAcc'),] 
+TMPemd.medianCongRT <- emDis[ which(emDis$text=='Scores.medianCongRT'),] 
+TMPemd.medianCorrRT <- emDis[ which(emDis$text=='Scores.medianCorrRT'),] 
+TMPemd.medianInCongRT <- emDis[ which(emDis$text=='Scores.medianInCongRT'),] 
+TMPemd.medianRT <- emDis[ which(emDis$text=='Scores.medianRT'),] 
+TMPemd.totalCorrect <- emDis[ which(emDis$text=='Scores.totalCorrect'),] 
+
+emd.user_id <- TMPemd.totalCorrect$user_id
+emd.conAcc <- TMPemd.conAcc$body
+emd.inCongAcc <- TMPemd.inCongAcc$body
+emd.medianCongRT <- TMPemd.medianCongRT$body
+emd.medianCorrRT <- TMPemd.medianCorrRT$body
+emd.medianInCongRT <- TMPemd.medianInCongRT$body
+emd.medianRT <- TMPemd.medianRT$body
+emd.totalCorrect <- TMPemd.totalCorrect$body
+
+emd.df <- data.frame(emd.user_id,emd.conAcc,emd.inCongAcc,emd.medianCongRT,emd.medianCorrRT,emd.medianInCongRT,emd.medianRT,emd.totalCorrect)
+
+```
+
+
+
+
+## Mind in the Eyes
+```{r}
+
+# MITE
+
+# based on variable values
+tmite <- df[ which(df$name=='Mind In The Eyes'),]
+tmite$user_id <- as.factor(tmite$user_id)
+tmite$body <- as.numeric(as.character(tmite$body))
+
+mAcc <- tmite[ which(tmite$text=='Scores.maleAcc'),]
+fAcc <- tmite[ which(tmite$text=='Scores.femaleAcc'),]
+mRT <- tmite[ which(tmite$text=='Scores.maleRT'),]
+fRT <- tmite[ which(tmite$text=='Scores.femaleRT'),]
+ss <- tmite[ which(tmite$text=='SummaryScore'),]
+
+mite.user_id  <- ss$user_id
+mite.maleACC <- mAcc$body
+mite.femaleAcc  <- fAcc$body
+mite.score <- ss$body
+mite.maleRT <- mRT$body
+mite.femaleRT <- fRT$body
+
+mite.df <- data.frame(mite.user_id, mite.maleACC, mite.femaleAcc, mite.score, mite.maleRT, mite.femaleRT)
+
+```
+
+# Additional tasks  
+```{r}
+
+# ssT.score <- Switching.Stroop[ which(Switching.Stroop$text=='SummaryScore'),] 
+# ss.score <- ssT.score$body
+# ssT.congRT <- Switching.Stroop[ which(Switching.Stroop$text=='Scores.medCongRT'),] 
+# ss.CongRT <- ssT.congRT$body
+# ssT.IncongRT <- Switching.Stroop[ which(Switching.Stroop$text=='Scores.medIncongRT'),] 
+# ss.InCongRT <- ssT.score$body
+# ss.user_id <- ssT.score$user_id
+# 
+# ortDiscT.score <- Orthographic.Discrimination[ which(Orthographic.Discrimination$text=='SummaryScore'),] 
+# ortDisc.score <- ortDiscT.score$body
+# ortDiscT.corrRT <- Orthographic.Discrimination[ which(Orthographic.Discrimination$text=='Scores.medCorrRT'),] 
+# ortDisc.corrRT <- ortDiscT.corrRT$body
+# ortDisc.user_id <- ortDiscT.score$user_id
+# 
+# syntaxtTaskT.score <- Syntax.Task[ which(Syntax.Task$text=='SummaryScore'),] 
+# syntaxtTask.score <- syntaxtTaskT.score$body
+# syntaxtTaskT.corrRT <- Syntax.Task[ which(Syntax.Task$text=='Scores.medCorrRT'),] 
+# syntaxtTask.corrRT <- syntaxtTaskT.score$body
+# syntaxtTask.user_id <- syntaxtTaskT.score$user_id
+# 
+# blocksT.score <- Blocks[ which(Blocks$text=='SummaryScore'),] 
+# blocks.score <- blocksT.score$body
+# blocksT.corrRT <- Blocks[ which(Blocks$text=='Scores.medCorrRT'),] 
+# blocks.corrRT <- blocksT.score$body
+# blocks.user_id <- blocksT.score$user_id
+# 
+# Odd.One.OutT.score <- Odd.One.Out[ which(Odd.One.Out$text=='SummaryScore'),] 
+# Odd.One.Out.score <- Odd.One.OutT.score$body
+# Odd.One.OutT.corrRT <- Odd.One.Out[ which(Odd.One.Out$text=='Scores.medCorrRT'),] 
+# Odd.One.Out.corrRT <- Odd.One.OutT.score$body
+# Odd.One.Out.user_id <- Odd.One.OutT.score$user_id
+# 
+# Latin.SquareT.score <- Latin.Square[ which(Latin.Square$text=='SummaryScore'),] 
+# Latin.Square.score <- Latin.SquareT.score$body
+# Latin.SquareT.corrRT <- Latin.Square[ which(Latin.Square$text=='Scores.medCorrRT'),] 
+# Latin.Square.corrRT <- Latin.SquareT.score$body
+# Latin.Square.user_name <- Latin.SquareT.score$user_id
+# 
+# 
+# # Syntax.Task
+# # Sustained.Attention...Objects
+# # Blocks
+# # Latin.Square
+# # Odd.One.Out
+# # Odd.One.Out.relational
+# # Orthographic.Discrimination
+# 
+# 
+# ss.df <- data.frame(ss.user_id, ss.score, ss.CongRT, ss.InCongRT)
+# orthDisc.df <- data.frame(ortDisc.user_id, ortDisc.score, ortDisc.corrRT)
+# syntaxTask.df <- data.frame(syntaxtTask.user_id, syntaxtTask.score, syntaxtTask.corrRT )
+# blocks.df <- data.frame(blocks.user_id, blocks.score, blocks.corrRT)
+# ooo.df <- data.frame(Odd.One.Out.user_id, Odd.One.Out.score, Odd.One.Out.corrRT)
+# ls.df <- data.frame(Latin.Square.user_name, Latin.Square.score,Latin.Square.corrRT)
+# 
+# 
+# colnames(ss.df)[colnames(ss.df)=="ss.user_id"] <- "user_id"
+# colnames(orthDisc.df)[colnames(orthDisc.df)=="ortDisc.user_id"] <- "user_id"
+# colnames(syntaxTask.df)[colnames(syntaxTask.df)=="syntaxtTask.user_id"] <- "user_id"
+# colnames(blocks.df)[colnames(blocks.df)=="blocks.user_id"] <- "user_id"
+# colnames(ooo.df)[colnames(ooo.df)=="Odd.One.Out.user_id"] <- "user_id"
+# colnames(ls.df)[colnames(ls.df)=="Latin.Square.user_name"] <- "user_id"
+# 
+# ss.soc <- merge(ss.df, soc.df, by.x = "user_id")
+# orthDisc.soc <- merge(orthDisc.df, soc.df, by.x = "user_id")
+# syntaxTask.soc <- merge(syntaxTask.df, soc.df, by.x = "user_id")
+# blocks.soc <- merge(blocks.df, soc.df, by.x = "user_id")
+# ooo.soc <- merge(ooo.df, soc.df, by.x = "user_id")
+# ls.soc <- merge(ls.df, soc.df, by.x = "user_id")
+
+```
+
+---
+
+### Some faffing to look at the drop off rate
+
+```{r}
+
+# Make new dataframe
+n.mite <- as.numeric(nlevels(mite.user_id)) 
+n.demo <- as.numeric(nlevels(demo.user_id)) 
+n.emd <- as.numeric(nlevels(emd.user_id)) 
+n.emc <- as.numeric(nlevels(emc.user_id)) 
+n.BFI <- as.numeric(nlevels(BFI.user_id)) 
+n.contextTask <- as.numeric(nlevels(contextTask.user_id)) 
+n.EQ <- as.numeric(nlevels(EQ.user_id)) 
+n.socialLearning <- as.numeric(nlevels(socialLearning.user_id)) 
+ 
+task <- c('mite', 'demo', 'emd', 'emc', 'BFI', 'contextTask','EQ','socialLearning')
+obs <- c(n.mite, n.demo, n.emd,n.emc,n.BFI,n.contextTask,n.EQ,n.socialLearning)
+n <- data.frame(task, obs)
+#n2 <- n[with(n, order(-obs)), ]
+
+
+# Plot the data on decending observations
+p <- ggplot(n, aes(x = reorder(task, -obs), y = obs, fill = task)) + 
+        labs(title = "Collective intelligence observations", x = "Task", y = "Count") + 
+        theme_bw() +
+        theme(text = element_text(size=18), axis.text.x=element_text(angle=45, vjust=0.5)) +
+        geom_col(binwidth=1) +
+        scale_color_discrete(breaks=c('BFI', 'mite', 'EQ', 'emc', 'emd', 'contextTask','socialLearning','demo')) +
+        fillPalette
+
+ggdraw(p)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/task_n.pdf", plot = p, width = 12, height = 8, units = c("in"), dpi = 300)
+
+```
+
+# scrubbed masterfile
+```{r}
+
+colnames(demo.df)[colnames(demo.df)=="demo.user_id"] <- "user_id"
+colnames(emc.df)[colnames(emc.df)=="emc.user_id"] <- "user_id"
+colnames(emd.df)[colnames(emd.df)=="emd.user_id"] <- "user_id"
+colnames(mite.df)[colnames(mite.df)=="mite.user_id"] <- "user_id"
+colnames(EQ.df)[colnames(EQ.df)=="EQ.user_id"] <- "user_id"
+colnames(BFI.df)[colnames(BFI.df)=="BFI.user_id"] <- "user_id"
+colnames(POMP.df)[colnames(POMP.df)=="BFI.user_id"] <- "user_id"
+colnames(socialLearning.df)[colnames(socialLearning.df)=="socialLearning.user_id"] <- "user_id"
+colnames(contextTask.df)[colnames(contextTask.df)=="contextTask.user_id"] <- "user_id"
+
+# merge data - tidyverse
+tmp <- list(demo.df, emd.df,emc.df, mite.df, EQ.df, BFI.df, POMP.df, socialLearning.df, contextTask.df) %>% reduce(left_join, by = "user_id") 
+
+# Remove duplicates based on Sepal.Width columns
+tmp.df <- tmp[!duplicated(tmp$user_id), ]
+soc.df <- tmp.df[ which(tmp.df$demo.age < 100 & tmp.df$demo.age > 10),]
+
+# labeling
+
+soc.df$demo.sex <- as.character(soc.df$demo.sex)
+soc.df$demo.sex <- revalue(soc.df$demo.sex, c("0"="Male", "1"="Female"))
+
+write.csv(soc.df, file = "~/Google\ Drive/emo/bbc/bbc_soc.df.csv",row.names=FALSE)
+```
+
+
+--- 
+#Scrubbed data file
+```{r}
+soc.df <- read.csv('~/Google\ Drive/Imperial/emo/bbc/bbc_soc.df.csv')
+
+# Set age categories
+n = length(soc.df$demo.age)
+
+    for (i in 1:n) {
+      # score cat
+      if (soc.df$demo.age[i] >= 10 & soc.df$demo.age[i] < 20) {
+        soc.df$ageCat[i] <- "10-20"
+      } else if (soc.df$demo.age[i] >= 20 & soc.df$demo.age[i] < 30) {
+        soc.df$ageCat[i] <- "20-30"
+      } else if (soc.df$demo.age[i] >= 30 & soc.df$demo.age[i] < 40) {
+        soc.df$ageCat[i] <- "30-40"
+      } else if (soc.df$demo.age[i] >= 40 & soc.df$demo.age[i] < 50) {
+        soc.df$ageCat[i] <- "40-50"
+      } else if (soc.df$demo.age[i] >= 50 & soc.df$demo.age[i] < 60) {
+        soc.df$ageCat[i] <- "50-60"
+      } else if (soc.df$demo.age[i] >= 60 & soc.df$demo.age[i] < 70) {
+        soc.df$ageCat[i] <- "60-70"
+      } else {
+        soc.df$ageCat[i] <- "NA"
+      }
+    }
+
+soc.df$ageCat <- as.factor(soc.df$ageCat)
+
+```
+
+
+# Factor analysis - Big 5
+```{r}
+
+drop <- c("user_id", "O", "C", "E", "A", "N")
+
+fa.df <-
+  soc.df %>% # PMH.df[ which(PMH.df$Group.x=='CON'),] %>%
+  .[,!(names(.) %in% drop)]
+
+
+levels(fa.df$demo.sex)[levels(fa.df$demo.sex) == "Male" ]  <- 1
+levels(fa.df$demo.sex)[levels(fa.df$demo.sex) == "Female" ]  <- 2
+fa.df <- na.omit(fa.df)
+fa.df$demo.sex <- as.numeric(fa.df$demo.sex)
+
+# https://www.promptcloud.com/blog/exploratory-factor-analysis-in-r/
+
+#install.packages('GPArotation')
+library(GPArotation)
+library(psych)
+
+parallel <- fa.parallel(fa.df, fm = 'minres', fa = 'fa')
+
+
+# threefactor <- fa(fa.df, nfactors = 3, rotate = "oblimin",fm="minres")
+# print(threefactor)
+# print(threefactor$loadings,cutoff = 0.3)
+# fa.diagram(threefactor)
+# 
+fourfactor <- fa(fa.df,nfactors = 4,rotate = "oblimin",fm="minres")
+print(fourfactor)
+print(fourfactor$loadings,cutoff = 0.3)
+fa.diagram(fourfactor)
+
+
+ols.fivefactor <- fa(fa.df, nfactors = 5, rotate = "oblimin",fm="ols")
+print(ols.fivefactor)
+print(ols.fivefactor$loadings,cutoff = 0.3)
+fa.diagram(ols.fivefactor)
+
+ols.eightfactor <- fa(fa.df, nfactors = 8, rotate = "oblimin",fm="ols")
+print(ols.eightfactor)
+print(ols.eightfactor$loadings,cutoff = 0.3)
+fa.diagram(ols.eightfactor)
+
+```
+
+
+# Analysis
+
+## Age histrogram plot
+```{r}
+# http://www.sthda.com/english/wiki/ggplot2-histogram-plot-quick-start-guide-r-software-and-data-visualization
+
+mu <- ddply(soc.df, "demo.sex", summarise, grp.mean=mean(demo.age))
+
+# Change line colors by groups
+# ggplot(soc.df, aes(x=demo.age, color=demo.sex, fill=demo.sex)) +
+# geom_histogram(aes(y=..density..), position="identity", alpha=0.3)+
+# geom_density(alpha=0.3)+
+# geom_vline(data=mu, aes(xintercept=grp.mean, color=demo.sex),
+#            linetype="dashed")+
+# scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+# scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9"))+
+# labs(title="Age histogram plot",x="Age", y = "Density")+
+# theme_classic()
+
+
+p2 <-ggplot(soc.df, aes(x=demo.age, fill=demo.sex, color=demo.sex)) +
+  geom_histogram(position="identity", alpha= aa)
+
+p2 +scale_color_brewer(palette="Dark2")+
+  scale_fill_brewer(palette="Dark2")+
+  geom_vline(data=mu, aes(xintercept=grp.mean, color=demo.sex),
+           linetype="dashed") +
+  labs(title="Age histogram plot",x="Age", y = "Count") +
+  theme_classic()
+
+ggdraw(p2)
+#ggsave("~/Google\ Drive/emo/bbc/rFigures/age_hist.pdf", plot = p2)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/age_hist.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+describeBy(soc.df$demo.age, soc.df$demo.sex)
+
+
+```
+
+# MITE, split by sex/age
+```{r}
+
+outlierReplace = function(dataframe, cols, rows, newValue = NA) {
+    if (any(rows)) {
+        set(dataframe, rows, cols, newValue)
+    }
+}
+outlierReplace(soc.df, "mite.score", which(soc.df$mite.score < 0), NA)
+
+px <- ggplot(data = soc.df, aes(x = demo.sex, y = soc.df$mite.score,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+        geom_boxplot(size = 1, alpha = aa, colour = "black", outlier.shape = NA) +
+        stat_compare_means(label.x = 1.2, size = 6,  show.legend = FALSE) +
+        labs(title = "Mind in the Eyes", x = "Sex", y = "Score", colour = "Sex") +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(px, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = mite.score, fill = demo.sex), alpha = aa, size = 0.2)+
+            coord_flip() 
+
+p1 <- insert_yaxis_grob(px, ydens, grid::unit(.2, "null"), position = "right")
+
+ggdraw(p1)
+#ggsave("~/Google\ Drive/emo/bbc/rFigures/mite_sex.pdf", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+#ggsave("~/Google\ Drive/emo/bbc/rFigures/mite_sex.png", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+
+p3.a <- ggplot(data = soc.df, aes(x = demo.age, y = soc.df$mite.score,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+        geom_smooth(method = "loess") +
+        geom_vline(xintercept = 25, linetype = 2) +
+        labs(title = "Mind in the Eyes", x = "Age", y = "Score", color = "Sex") +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(p3.a, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = mite.score, fill = demo.sex), alpha = aa, size = 0.2)+
+            coord_flip() 
+
+p3 <- insert_yaxis_grob(p3.a, ydens, grid::unit(.2, "null"), position = "right")
+
+ggdraw(p3)
+#ggsave("~/Google\ Drive/emo/bbc/rFigures/mite_age_se.pdf", plot = p3, width = 12, height = 8, units = c("in"), dpi = 300)
+#ggsave("~/Google\ Drive/emo/bbc/rFigures/mite_age_se.png", plot = p3, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# ## Some stats perhaps
+ m1 <- lm(mite.score ~ demo.age*demo.sex, data = soc.df)
+ Anova(m1, type="II")
+ summary(m1)
+
+# # Run some models
+# data$ageCat <- as.factor(data$ageCat)
+# m1 <- lm(mite.score ~ ageCat*demo.sex, data = data)
+# Anova(m1, type="II")
+# #summary(m1)
+# lsm = lsmeans(m1, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# # sanity checking
+# newdata <- data[ which(data$ageCat=='10-20'), ]
+# wilcox.test(newdata$mite.score ~ newdata$demo.sex)
+# describeBy(newdata$mite.score,newdata$demo.sex)
+
+```
+
+
+
+# Empathy Quotient, split by sex/age
+```{r}
+# Both do the same - means basic, mu - package
+means <- aggregate(EQ.score ~ demo.sex, soc.df, mean)
+#mu.EQ <- ddply(soc.df, "demo.sex", summarise, grp.mean=mean(EQ.score))
+
+px <- ggplot(data = soc.df, aes(x = demo.sex, y = EQ.score,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+        geom_boxplot(size = 1, alpha = aa, colour = "black", outlier.shape = NA) +
+        stat_compare_means(label.x = 1.2, size = 6,  show.legend = FALSE) +
+        geom_text(data = means, aes(label = EQ.score, y = EQ.score + 2), size = 6, color = "black", fontface="bold") +
+        labs(title = "Empathy Quotient", x = "Sex", y = "Score", color = "Sex") +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(px, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = EQ.score, fill = demo.sex), alpha = aa, size = 0.2)+
+            coord_flip() 
+
+p1 <- insert_yaxis_grob(px, ydens, grid::unit(.2, "null"), position = "right")
+ggdraw(p1)  
+  
+pmain <- ggplot(data = soc.df, aes(x = demo.age, y = EQ.score,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+        geom_smooth(method = "loess") + # se = FALSE
+        labs(title = "Empathy Quotient", x = "Age", y = "Score", color = "Sex") +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = EQ.score, fill = demo.sex), alpha = aa, size = 0.2)+
+            coord_flip() 
+
+p2 <- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+ 
+ggdraw(p1)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/EQ_sex.pdf", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/EQ_sex.png", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+
+ggdraw(p2) 
+ggsave("~/Google\ Drive/emo/bbc/rFigures/EQ_age.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/EQ_age.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+# 
+# data <- soc.df[ which(soc.df$demo.age < 60 ), ] # & soc.df$demo.age > 30
+# data$demo.age <- as.factor(as.character(data$demo.age))
+# m1 <- lm(EQ.score ~ demo.age*demo.sex, data = data)
+# Anova(m1, type="II")
+# #summary(m1)
+# 
+# 
+# # Run some models
+# data <- soc.df
+# 
+# m1 <- lm(EQ.score ~ ageCat*demo.sex, data = data)
+# Anova(m1, type="II")
+# #summary(m1)
+# lsm = lsmeans(m1, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# # sanity checking
+# newdata <- data[ which(data$ageCat=='40-50'), ]
+# wilcox.test(newdata$EQ.score ~ newdata$demo.sex)
+# describeBy(newdata$mite.score,newdata$demo.sex)
+# 
+# wilcox.test(data$EQ.score ~ data$demo.sex)
+# t.test(data$EQ.score ~ data$demo.sex)
+# describeBy(data$EQ.score,data$demo.sex)
+
+
+```
+
+## Social Learning
+
+```{r}
+
+means <- aggregate(socialLearning.score ~ demo.sex, soc.df, mean)
+
+pmain <- ggplot(data = soc.df, aes(x = demo.sex, y = socialLearning.score, colour = demo.sex)) +
+            geom_point(size = pointSize, alpha = aa, position = "jitter") +
+            geom_boxplot(size = 1, alpha = 0, colour = "black", na.shape = NA) +
+            stat_compare_means(label.x = 1.2, size = 6, show.legend = FALSE) + 
+            labs(title = "Social learning", x = "Sex", y = "Score", color = "Sex") +
+            theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+        
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = socialLearning.score, fill = demo.sex), alpha = aa, size = 0.2)+
+            coord_flip() 
+
+p1 <- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+ggdraw(p1)  
+ggsave("~/Google\ Drive/emo/bbc/rFigures/socialLearning_sex.pdf", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/socialLearning_sex.png", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+
+pmain2 <- ggplot(data = soc.df, aes(x = demo.age, y = socialLearning.score,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+        geom_smooth(method = "loess", se = FALSE) + 
+        labs(title = "Social learning", x = "Age", y = "Score", color = "Sex") +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(pmain2, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = socialLearning.score, fill = demo.sex), alpha = aa, size = 0.2)+
+            coord_flip() 
+
+p2 <- insert_yaxis_grob(pmain2, ydens, grid::unit(.2, "null"), position = "right") 
+ggdraw(p2)   
+ggsave("~/Google\ Drive/emo/bbc/rFigures/socialLearning_age.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/socialLearning_age.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# # Correlation with other measures 
+# ggplot(data = soc.df, aes(x = A, y = socialLearning.score,  colour = demo.sex)) +
+#        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+#        geom_smooth(method = "loess") + # , se = FALSE
+#        labs(title = "Social learning", x = "Age", y = "Score") +
+#        theme(text = element_text(size = 20), axis.text = element_text(size = 16))
+# 
+# # In relation to Empathy Quotient
+# ggplot(data = soc.df, aes(x = EQ.score, y = socialLearning.score,  colour = demo.sex)) +
+#        geom_point(alpha = aa, position = "jitter") +
+#        geom_smooth(method = "lm", se = FALSE) +
+#        theme(text = element_text(size = 20), axis.text = element_text(size = 16))
+
+
+### STATS
+# data <- soc.df
+# # Run some models
+# m1 <- lm(socialLearning.score ~ ageCat*demo.sex, data = data)
+# Anova(m1, type="II")
+# #summary(m1)
+# lsm = lsmeans(m1, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# # sanity checking
+# newdata <- data #[ which(data$demo.age < 60), ]
+# wilcox.test(newdata$socialLearning.score ~ newdata$demo.sex)
+# describeBy(newdata$socialLearning.score, newdata$demo.sex)
+# 
+# cor.test(soc.df$EQ.score,  soc.df$socialLearning.score)
+
+
+```
+
+
+## Social context task
+```{r}
+
+pmain <- ggplot(data = soc.df, aes(x = demo.sex, y = contextTask.score,  colour = demo.sex)) +
+            geom_point(size = pointSize, alpha = aa, position = "jitter") +
+            geom_boxplot(size = 1, alpha = 0, colour = "black") +
+            stat_compare_means(label.x = 1.2, size = 6, show.legend = FALSE) + 
+            labs(title = "Social-Emotional context", x = "Sex", y = "Score", color = "Sex") +
+            theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = contextTask.score, fill = demo.sex), alpha = aa, size = 0.2) +
+            coord_flip() 
+
+p1 <- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+ggdraw(p1)  
+ggsave("~/Google\ Drive/emo/bbc/rFigures/contextTask_sex.pdf", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/contextTask_sex.png", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+
+pmain2 <- ggplot(data = soc.df, aes(x = demo.age, y = contextTask.score,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+        geom_smooth(method = "loess") + # se = FALSE 
+        labs(title = "Context task", x = "Sex", y = "Score", color = "Sex") +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(pmain2, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = contextTask.score, fill = demo.sex), alpha = aa, size = 0.2) +
+            coord_flip() 
+
+p2 <- insert_yaxis_grob(pmain2, ydens, grid::unit(.2, "null"), position = "right")
+ggdraw(p2)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/contextTask_age.pdf", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/contextTask_age.png", plot = p2, width = 12, height = 8, units = c("in"), dpi = 300)
+
+p3 <- ggplot(data = soc.df, aes(x = EQ.score, y = contextTask.score,  colour = demo.sex)) +
+        geom_point(alpha = aa, position = "jitter") +
+        geom_smooth(method = "lm", se = FALSE) +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16))
+ 
+ggdraw(p3) 
+ggsave("~/Google\ Drive/emo/bbc/rFigures/contextTask_EQ.pdf", plot = p3, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/contextTask_EQ.png", plot = p3, width = 12, height = 8, units = c("in"), dpi = 300)
+
+# cor.test(soc.df$EQ.score,  soc.df$contextTask.score)
+# 
+# data <- soc.df
+# # Run some models
+# m1 <- lm(contextTask.score ~ ageCat*demo.sex, data = data)
+# Anova(m1, type="II")
+# #summary(m1)
+# lsm = lsmeans(m1, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# # sanity checking
+# newdata <- data[ which(data$ageCat=="40-50"), ]
+# wilcox.test(newdata$contextTask.score ~ newdata$demo.sex)
+# describeBy(newdata$contextTask.score, newdata$demo.sex)
+# 
+# cor.test(soc.df$EQ.score,  soc.df$contextTask.score)
+
+```
+
+
+
+## Corrected reverse scoring Big 5 personality
+```{r}
+
+myvars <- c("user_id", "demo.age", "demo.sex", "Op", "Cp", "Ep","Ap", "Np") # "demo.age", "demo.sex",
+POMP.df <- soc.df[myvars]
+
+f.pomp <- POMP.df[ which(POMP.df$demo.sex=='Female'), ]
+m.pomp <- POMP.df[ which(POMP.df$demo.sex=='Male'), ]
+
+
+POMP.m <- melt(data = POMP.df, id.vars = "user_id")
+p1 <- ggplot(POMP.m, aes(value, fill=variable)) +
+      geom_density(alpha= aa) +
+      theme_classic() +
+      labs(title="POMP ",x="Score", y = "Density") + 
+      theme(text = element_text(size = 20), axis.text = element_text(size = 16)) +
+      fillPalette
+
+ggdraw(p1) 
+ggsave("~/Google\ Drive/emo/bbc/rFigures/big5-density.pdf", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# Radar plot
+myvars <- c("user_id", "demo.age", "demo.sex", "Op", "Cp", "Ep","Ap", "Np") # "demo.age", "demo.sex",
+POMP.df <- soc.df[myvars]
+
+f.pomp <- POMP.df[ which(POMP.df$demo.sex=='Female'), ]
+m.pomp <- POMP.df[ which(POMP.df$demo.sex=='Male'), ]
+
+rp.f.pomp <- as.data.frame(mean(f.pomp$Op, na.rm = TRUE))
+rp.f.pomp$C <- mean(f.pomp$Cp, na.rm = TRUE)
+rp.f.pomp$E <- mean(f.pomp$Ep, na.rm = TRUE)
+rp.f.pomp$A <- mean(f.pomp$Ap, na.rm = TRUE)
+rp.f.pomp$N <- mean(f.pomp$Np, na.rm = TRUE)
+colnames(rp.f.pomp)[1] <- "O"
+
+rp.m.pomp <- as.data.frame(mean(m.pomp$Op, na.rm = TRUE))
+rp.m.pomp$C <- mean(m.pomp$Cp, na.rm = TRUE)
+rp.m.pomp$E <- mean(m.pomp$Ep, na.rm = TRUE)
+rp.m.pomp$A <- mean(m.pomp$Ap, na.rm = TRUE)
+rp.m.pomp$N <- mean(m.pomp$Np, na.rm = TRUE)
+colnames(rp.m.pomp)[1] <- "O"
+
+data <- rbind(rep(100,5) , rep(0,5) , rp.f.pomp, rp.m.pomp)
+#rownames(data)[1] <- "Min"
+#rownames(data)[2] <- "Max"
+rownames(data)[3] <- "Female"
+rownames(data)[4] <- "Male"
+
+# Custom the radarChart !
+par(mar=rep(0,4))
+par(mfrow=c(1,2))
+
+# Set graphic colors
+library(RColorBrewer)
+coul <-  brewer.pal(4, "Set1") # colPalette
+colors_border <- coul
+library(scales)
+colors_in <- alpha(coul,0.3)
+
+# plot
+radarchart(data, axistype=1,
+          #custom polygon
+          pcol=colors_border, pfcol=colors_in , plwd=4 , 
+          #custom the grid
+          cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(20,100,20), cglwd=0.8,
+          #custom labels
+          vlcex=0.8 
+          )
+legend(x=0.8, y=1, legend = rownames(data), bty = "n", pch=20 , col=colors_in , text.col = "grey", cex=1.6, pt.cex=3)
+
+# Barplot
+# p6 <- data %>% slice(3) %>% t() %>% as.data.frame() %>% add_rownames() %>% arrange(V1) %>% mutate(rowname=factor(rowname, rowname)) %>%
+# 
+#   ggplot( aes(x=rowname, y=V1)) +
+#     geom_segment( aes(x=rowname ,xend=rowname, y=0, yend=V1), color="grey") +
+#     geom_point(size=5, color="#69b3a2") +
+#     coord_flip() +
+#     #theme_ipsum() +
+#     theme(
+#       panel.grid.minor.y = element_blank(),
+#       panel.grid.major.y = element_blank(),
+#       axis.text = element_text( size=20 ),
+#       legend.position="none") +
+#     ylim(0,100) +
+#     ylab("mark") +
+#     xlab("")
+# 
+# ggdraw(p6)
+# ggsave("~/Google\ Drive/emo/bbc/rFigures/big5-bar.pdf", plot = p6, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# alt to lolipop plot
+myvars <- c("user_id","demo.sex","demo.age", "Op", "Cp", "Ep","Ap", "Np") # "demo.age", "demo.sex",
+big5.df <- soc.df[myvars]
+big5.m <- melt(data = big5.df, id.vars = c("demo.sex","demo.age"), measure.vars = c("Op", "Cp", "Ep","Ap", "Np"))
+
+# Automatically by ranked order is no longer working??
+big5.m$variable <- factor(big5.m$variable, levels = c('Ep', 'Np', 'Op', 'Ap','Cp'), ordered = TRUE)
+p1 <- ggplot(data = big5.m, aes(x = fct_reorder(variable, value, .fun = mean), y = value, colour = demo.sex)) + #
+        geom_point(size = pointSize, alpha = 0.5, position = position_jitterdodge(jitter.width = NULL, jitter.height = 0.8, dodge.width = 0.75, seed = NA)) +
+        geom_boxplot(size = 1, alpha = 0, colour = "black", outlier.shape = NA) +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20), legend.position = "none") +
+        colPalette +
+        labs(title="The Big 5",x="Dimension (Ranked order)", y = "POMP", colour = "Gender") +
+        coord_flip()
+ggdraw(p1)
+
+ggsave("~/Google\ Drive/emo/bbc/rFigures/big5-bar.pdf", plot = p1, width = 12, height = 8, units = c("in"), dpi = 300)
+
+```
+
+
+# Age curves for personality
+```{r}
+
+# Plot Age curve
+p1 <- ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Op,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size = 2) +
+        geom_smooth(aes(color=demo.sex), method = "glm", se = FALSE, show.legend = FALSE) +
+        geom_vline(xintercept = 30, linetype = 3) +
+        labs( x = "Age", y = "Openness", group = "Sex") + # title = "Personality across the lifespan",
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+# Plot Age curve
+p2 <- ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Cp,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size = 2) +
+        geom_smooth(aes(color=demo.sex), method = "glm", se = FALSE, show.legend = FALSE) +
+        geom_vline(xintercept = 30, linetype = 3) +
+        labs(x = "Age", y = "Conscientiousness", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+
+# Plot Age curve
+p3 <- ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Ep,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size = 2) +
+        geom_smooth(aes(color=demo.sex), method = "glm", se = FALSE, show.legend = FALSE) +
+        geom_vline(xintercept = 30, linetype = 3) +
+        labs(x = "Age", y = "Extraversion", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+# Plot Age curve
+p4 <- ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Ap,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size = 2) +
+        geom_smooth(aes(color=demo.sex), method = "glm", se = FALSE, show.legend = FALSE) +
+        geom_vline(xintercept = 30, linetype = 3) +
+        labs(x = "Age", y = "Agreeableness", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+# Plot Age curve
+# Plot with small dot size
+# Sampling a fraction of the data
+p5 <- soc.df %>%
+      sample_frac(1) %>%
+      ggplot(aes(x = demo.age, y = Np,  group = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size =2) +
+        geom_smooth(aes(color=demo.sex), method = "glm", se = FALSE, show.legend = FALSE) +
+        geom_vline(xintercept = 30, linetype = 3) +
+        labs(x = "Age", y = "Neuroticism", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+p5
+
+fPlot <- ggarrange(
+         p1, 
+         p2,
+         p3,
+         p4,
+         p5,
+         nrow = 3, ncol = 2)
+ggdraw(fPlot)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/OCEAN_age.pdf", plot = fPlot, width = 8, height = 12, units = c("in"), dpi = 300)
+
+
+```
+
+###  Sampling a fraction of the data
+p5 <- soc.df %>%
+      sample_frac(0.50) %>%
+      ggplot(aes(x = demo.age, y = Np,  colour = demo.sex)) +
+        geom_point(size =2, alpha = 0.4, position = "jitter") +
+        geom_smooth(method = "glm", se = FALSE) +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16)) +
+        geom_vline(xintercept = 30, linetype = 3)
+p5
+
+
+```{r}
+library(lme4)
+
+O.lm.model <- lm(Op ~ demo.age + demo.sex + demo.age:demo.sex, data=soc.df)
+fit2b <- lm(Op ~ poly(demo.age, 2, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+fit3b <- lm(Op ~ poly(demo.age, 3, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+
+summary(O.lm.model)
+summary(fit2b)
+summary(fit3b)
+anova(O.lm.model, fit2b)
+anova(fit2b, fit3b)
+anova(O.lm.model, fit3b)
+
+ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Op,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size =2) +
+        stat_smooth(method = lm, formula = y ~ poly(x, 3, raw = TRUE)) +
+        geom_vline(xintercept = 30, linetype = 3) +
+        labs(x = "Age", y = "O", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+
+C.lm.model <- lm(Cp ~ demo.age + demo.sex + demo.age:demo.sex, data=soc.df)
+fit2b <- lm(Cp ~ poly(demo.age, 2, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+fit3b <- lm(Cp ~ poly(demo.age, 3, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+
+summary(C.lm.model)
+summary(fit2b)
+summary(fit3b)
+anova(C.lm.model, fit2b)
+anova(fit2b, fit3b)
+anova(C.lm.model, fit3b)
+
+ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Cp,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size = 2) +
+        stat_smooth(method = lm, formula = y ~ poly(x, 2, raw = TRUE)) +
+        geom_vline(xintercept = 30, linetype = 3) +
+        labs(x = "Age", y = "C", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+E.lm.model <- lm(Ep ~  demo.age:demo.sex, data=soc.df) # demo.age + demo.sex +
+fit2b <- lm(Ep ~ poly(demo.age, 2, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+fit3b <- lm(Ep ~ poly(demo.age, 3, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+
+summary(E.lm.model)
+summary(fit2b)
+summary(fit3b)
+
+anova(E.lm.model, fit2b)
+anova(fit2b, fit3b)
+anova(E.lm.model, fit3b)
+
+
+ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Ep,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size =2) +
+        stat_smooth(method = lm, formula = y ~ poly(x, 3, raw = TRUE)) +
+        geom_vline(xintercept = 30, linetype = 2) +
+        labs(x = "Age", y = "E", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+
+A.lm.model <- lm(Ap ~ demo.age + demo.sex + demo.age:demo.sex, data=soc.df)
+fit2b <- lm(Ap ~ poly(demo.age, 2, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+fit3b <- lm(Ap ~ poly(demo.age, 3, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+
+summary(A.lm.model)
+summary(fit2b)
+summary(fit3b)
+
+anova(A.lm.model, fit2b)
+anova(fit2b, fit3b)
+anova(A.lm.model, fit3b)
+
+
+ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Ap,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size =2) +
+        stat_smooth(method = lm) +
+        geom_vline(xintercept = 30, linetype = 2) +
+        labs(x = "Age", y = "A", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+N.lm.model <- lm(Np ~ demo.age:demo.sex, data=soc.df) # demo.age + demo.sex +
+fit2b <- lm(Np ~ poly(demo.age, 2, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+fit3b <- lm(Np ~ poly(demo.age, 3, raw=TRUE) + demo.sex + poly(demo.age, 2, raw=TRUE):demo.sex, data=soc.df)
+
+summary(N.lm.model)
+summary(fit2b)
+summary(fit3b)
+
+anova(N.lm.model, fit2b)
+anova(fit2b, fit3b)
+anova(N.lm.model, fit3b)
+
+
+ggplot(data = soc.df, aes(x = demo.age, y = soc.df$Np,  colour = demo.sex)) +
+        geom_point(aes(shape=demo.sex, color=demo.sex), alpha = 0.3, position = "jitter", size =2) +
+        stat_smooth(method = lm) +
+        geom_vline(xintercept = 30, linetype = 2) +
+        labs(x = "Age", y = "N", group = "Sex") +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+
+```
+
+Here I compare three models to explain OCEAN (as with srivastava, 2003). liner, quadratic, cubic.
+
+O is best explained with a cubic model. R-sq = 1% with no significant gender differences. 
+C is best explained by a liner model, R-sq = 3% with no significant gender differences.
+E is best explained with a cubic model. R-sq = <1% with no significant gender differences. 
+A is best explained by a liner model, R-sq = 2%, Age increasing.
+N is best explained by a liner model, R-sq = 3.5, Age & Male decreasing
+
+
+
+## Emotional Discrimination
+```{r}
+
+myvars <- c("demo.age", "demo.sex", "emd.conAcc", "emd.inCongAcc","emd.medianCongRT", "emd.medianInCongRT", "emd.totalCorrect" )
+newdata <- soc.df[myvars]
+
+acc_comparisons <- list( c("emd.conAcc", "emd.inCongAcc"))
+rt_comparisons <- list( c("emd.medianCongRT", "emd.medianInCongRT"))
+
+# Accuracy 
+emd.Acc.m <- melt(data = newdata, id.vars = c("demo.sex","demo.age"), measure.vars = c("emd.conAcc", "emd.inCongAcc"))
+p1 <- ggplot(data = emd.Acc.m, aes(x = variable, y = value, colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = position_jitterdodge(jitter.width = NULL, jitter.height = 0.02, dodge.width = 0.75, seed = NA)) +
+        geom_boxplot(size = 1, alpha = 0, colour = "black", outlier.shape = NA) +
+        ylim(0.4,1.2) +
+        stat_compare_means(label.x = 1.2, size = 6) +
+        stat_compare_means(comparisons = acc_comparisons, size = 6) + # Add pairwise comparisons p-value
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20), legend.position = "none") +
+        labs(title="Emotional Discrimination",x="Condition", y = "Accuracy", colour = "Gender")
+
+# Reaction time
+emd.RT.m <- melt(data = newdata, id.vars = c("demo.sex","demo.age"), measure.vars = c("emd.medianCongRT", "emd.medianInCongRT"))
+p2 <- ggplot(data = emd.RT.m, aes(x = variable, y = value, colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = position_jitterdodge(jitter.width = NULL, jitter.height = 0.02, dodge.width = 0.75, seed = NA)) +
+        geom_boxplot(size = 1, alpha = 0, colour = "black", outlier.shape = NA) +
+        ylim(500,4000) +
+        stat_compare_means(label.x = 1.2, size = 6) + 
+        stat_compare_means(comparisons = rt_comparisons, label.y = 3000, size = 6) + # Add pairwise comparisons p-value
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20)) +
+        labs(title="",x="Condition", y = "Reaction Time (ms)", colour = "Gender")
+
+dPlot <- ggarrange(
+         p1, 
+         p2, 
+         nrow = 1, ncol = 2,
+         common.legend = TRUE,
+         legend = "right")
+
+ggdraw(dPlot)
+ggsave("~/Google\ Drive/Imperial/emo/bbc/rFigures/emd_FacetPlot.pdf", plot = dPlot, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/Imperial/emo/bbc/rFigures/emd_FacetPlot.png", plot = dPlot, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# Plot Age curve
+pmain <- ggplot(data = soc.df, aes(x = demo.age, y = soc.df$emd.totalCorrect,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+        geom_smooth(method = "loess") + # , se = FALSE
+        labs(title="Emotional Discrimination",x="Age", y = "Total correct", colour = "Sex") +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = emd.totalCorrect, fill = demo.sex), alpha = aa, size = 0.2) +
+            coord_flip() 
+
+p4 <- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+ggdraw(p4)
+
+ggsave("~/Google\ Drive/Imperial/emo/bbc/rFigures/emd_age.pdf", plot = p4, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/Imperial/emo/bbc/rFigures/emd_age.png", plot = p4, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# Calculate costs for accuracy and RT
+emd.accCost = (soc.df$emd.conAcc - soc.df$emd.inCongAcc)
+emd.rtCost = (soc.df$emd.medianInCongRT - soc.df$emd.medianCongRT)
+
+# Plot rt cost
+p5 <- ggplot(data = soc.df, aes(x = demo.sex, y = emd.rtCost,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = position_jitterdodge(jitter.width = NULL, jitter.height = 0.02, dodge.width = 0.75, seed = NA)) + # position = "jitter"
+        ylim(-1000,1000) +
+        geom_boxplot(size = 1, alpha = aa, colour = "black", outlier.shape = NA) +
+        stat_compare_means(label.x = 1.2, size = 6,  show.legend = FALSE) +
+        labs(title="Emotional Discrimination", x="Gender", y = "Reaction time cost") + 
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20), legend.position = "none")
+
+# Plot Acc cost
+p6 <- ggplot(data = soc.df, aes(x = demo.sex, y = emd.accCost,  colour = demo.sex)) +
+          geom_point(size = pointSize, alpha = aa, position = "jitter") +
+          geom_boxplot(size = 1, alpha = aa, colour = "black", outlier.shape = NA) +
+          ylim(-0.5,0.5) +
+          stat_compare_means(label.x = 1.2, size = 6,  show.legend = FALSE) +
+          labs(title="Emotional Discrimination", x="Gender", y = "Accuracy cost", color = "Gender") +
+          theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+emdPlot <- ggarrange(
+         p5, 
+         p6, 
+         nrow = 1, ncol = 2)
+ggsave("~/Google\ Drive/Imperial/emo/bbc/rFigures/emdCost_plot.pdf", plot = emdPlot, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+# # Some stats
+# data <- soc.df
+# data$emd.accCost <- emd.accCost
+# data$ed.acc 
+# # Run some models
+# m1 <- lm(emd.accCost ~ ageCat*demo.sex, data = data)
+# 
+# Anova(m1, type="II")
+# #summary(m1)
+# lsm = lsmeans(m1, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# # sanity checking
+# newdata <- data[ which(data$ageCat=="60-70"), ]
+# 
+# t.test(data$emd.totalCorrect~ data$demo.sex)
+# summary(aov(data$emd.totalCorrect ~ data$demo.sex))
+# 
+# 
+# describeBy(data$emd.inCongAcc)
+# describeBy(data$emd.conAcc)
+# describeBy(data$emd.totalCorrect, data$demo.sex)
+# 
+# m2 <- lm(emd.rtCost ~ ageCat*demo.sex, data = data)
+# 
+# Anova(m2, type="II")
+# #summary(m1)
+# lsm = lsmeans(m2, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# t.test(data$emd.medianCongRT, data$emd.medianInCongRT)
+# 
+# describeBy(data$emd.medianCongRT)
+# describeBy(data$emd.medianInCongRT)
+
+
+```
+
+
+## Emotional Control
+```{r}
+
+myvars <- c("demo.age", "demo.sex", "emc.conAcc", "emc.inCongAcc","emc.medianCongRT", "emc.medianInCongRT", "emc.totalCorrect" )
+newdata <- soc.df[myvars]
+
+# Calculate costs for accuracy and RT
+emc.accCost = ( newdata$emc.conAcc - newdata$emc.inCongAcc)
+emc.rtCost = ( newdata$emc.medianInCongRT - newdata$emc.medianCongRT)
+
+# Accuracy 
+emc.Acc.m <- melt(data = newdata, id.vars = c("demo.sex","demo.age"), measure.vars = c("emc.conAcc", "emc.inCongAcc"))
+# Reaction time
+emc.RT.m <- melt(data = newdata, id.vars = c("demo.sex","demo.age"), measure.vars = c("emc.medianCongRT", "emc.medianInCongRT"))
+
+acc_comparisons <- list( c("emc.conAcc", "emc.inCongAcc"))
+rt_comparisons <- list( c("emc.medianCongRT", "emc.medianInCongRT"))
+
+p1 <- ggplot(data = emc.Acc.m, aes(x = variable, y = value, colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = position_jitterdodge(jitter.width = NULL, jitter.height = 0.02, dodge.width = 0.75, seed = NA)) + # jitter.height = 0.25,
+        geom_boxplot(size = 1, alpha = 0.7, colour = "black", outlier.shape = NA) +
+        ylim(0.3,1.2) +
+        stat_compare_means(label.x = 1.2, size = 6) + 
+        stat_compare_means(comparisons = acc_comparisons, size = 6) + # Add pairwise comparisons p-value
+        labs(title="Emotional Control - Accuracy",x="Condition", y = "Accuracy", colour = "Gender") +
+        scale_x_discrete(labels=c("emc.inCongAcc" = "Incongruent", "emc.conAcc" = "Congruent")) +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16), legend.position = "none")
+        
+# Reaction time
+p2 <- ggplot(data = emc.RT.m, aes(x = variable, y = value, colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = position_jitterdodge(jitter.width = NULL,  dodge.width = 0.75, seed = NA)) + # jitter.height = 0.25,
+        geom_boxplot(size = 1, alpha = 0.7, colour = "black", outlier.shape = NA) +
+        ylim(500,5000) +
+        stat_compare_means(label.x = 1.2, size = 6) + 
+        stat_compare_means(comparisons = rt_comparisons, label.y = 4000, size = 6) + # Add pairwise comparisons p-value
+        labs(title="",x="Condition", y = "Reaction Time (ms)", colour = "Gender") +
+        scale_x_discrete(labels=c("emc.medianInCongRT" = "Incongruent", "emc.medianCongRT" = "Congruent")) +
+        theme(text = element_text(size = 20), axis.text = element_text(size = 16))
+        
+emcPlot <- ggarrange(
+         p1, 
+         p2, 
+         nrow = 1, ncol = 2,
+         common.legend = TRUE,
+         legend = "right")
+
+ggdraw(emcPlot)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/emc_plot.pdf", plot = emcPlot, width = 12, height = 8, units = c("in"), dpi = 300)
+
+# Plot Age curve
+pmain <- ggplot(data = soc.df, aes(x = demo.age, y = soc.df$emc.totalCorrect,  colour = demo.sex)) +
+        geom_point(size = pointSize, alpha = aa, position = "jitter") +
+        geom_smooth(method = "loess") + # se = FALSE
+        labs(title="Emotional control - Age",x="Age", y = "Total correct", colour = "Sex") +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20))
+
+# Need to set coord_flip = TRUE, if you plan to use coord_flip()
+ydens <- axis_canvas(pmain, axis = "y", coord_flip = TRUE) +
+            geom_density(data = soc.df, aes(x = emc.totalCorrect, fill = demo.sex), alpha = aa, size = 0.2) +
+            coord_flip() 
+
+p4 <- insert_yaxis_grob(pmain, ydens, grid::unit(.2, "null"), position = "right")
+
+ggdraw(p4)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/emc_age.pdf", plot = p4, width = 12, height = 8, units = c("in"), dpi = 300)
+ggsave("~/Google\ Drive/emo/bbc/rFigures/emc_age.png", plot = p4, width = 12, height = 8, units = c("in"), dpi = 300)
+
+
+### COMENTED OUT JUST TO AVOID PLOTING LOTS OF OUTPUT
+# table(newdata$demo.sex)
+# t.test(newdata$emc.conAcc, newdata$emc.inCongAcc)
+# describeBy(newdata$emc.conAcc, newdata$emc.inCongAcc)
+# 
+# t.test(newdata$emc.medianCongRT, newdata$emc.medianInCongRT)
+# 
+# describeBy(newdata$emc.medianCongRT, newdata$demo.sex)
+# describeBy(newdata$emc.medianInCongRT, newdata$demo.sex)
+
+# # Some stats
+# data <- soc.df
+# data$emc.accCost <- emc.accCost
+# data$emc.rtCost <- emc.rtCost
+# 
+# t.test(data$emc.conAcc, data$emc.inCongAcc)
+# describeBy(data$emc.inCongAcc )
+# describeBy(data$emc.conAcc)
+# 
+# # Run some models
+# m1 <- lm(emc.accCost ~ ageCat*demo.sex, data = data)
+# Anova(m1, type="II")
+# #summary(m1)
+# lsm = lsmeans(m1, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# # sanity checking
+# newdata <- data[ which(data$ageCat=="60-70"), ]
+# t.test(data$emd.totalCorrect~ data$demo.sex)
+# summary(aov(data$emd.totalCorrect ~ data$demo.sex))
+# 
+# 
+# t.test(data$emd.medianCongRT, data$emd.medianInCongRT)
+# describeBy(data$emd.medianCongRT)
+# describeBy(data$emd.medianInCongRT)
+# 
+# m2 <- lm(emc.rtCost ~ ageCat*demo.sex, data = data)
+# Anova(m2, type="II")
+# #summary(m1)
+# lsm = lsmeans(m2, ~demo.sex|ageCat)
+# contrast(lsm, interaction = "pairwise", adjust="tukey")
+# 
+# # sanity checking
+# newdata <- data[ which(data$ageCat=="60-70"), ]
+# wilcox.test(newdata$emc.rtCost ~ newdata$demo.sex)
+# describeBy(newdata$emc.rtCost, newdata$demo.sex)
+
+
+```
+
+# Cognition
+
+ss.soc
+orthDisc.soc 
+syntaxTask.soc 
+blocks.soc 
+ooo.soc 
+ls.soc 
+
+```{r}
+
+ggplot(data = ss.soc, aes(x = demo.age, y = contextTask.score,  colour = demo.sex)) +
+       geom_point(alpha = 0.3, position = "jitter") +
+       geom_smooth(method = "loess", se = FALSE) + 
+       theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+
+ggplot(data = ss.soc, aes(x = demo.age, y = ss.score,  colour = demo.sex)) +
+       geom_point(alpha = 0.3, position = "jitter") +
+       geom_smooth(method = "loess", se = FALSE) + 
+       theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+
+ggplot(data = ss.soc, aes(x = demo.sex, y = ss.score,  colour = demo.sex)) +
+       geom_jitter() +
+       geom_boxplot(alpha = 0.5) + 
+       stat_compare_means() +
+       theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+
+ggplot(data = ooo.soc, aes(x = demo.age, y = Odd.One.Out.score,  colour = demo.sex)) +
+       geom_point(alpha = 0.3, position = "jitter") +
+       geom_smooth(method = "lm", se = FALSE) + 
+       theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+
+ggplot(data = ooo.soc, aes(x = demo.sex, y = Odd.One.Out.score,  colour = demo.sex)) +
+       geom_point(alpha = 0.7, position = "jitter") +
+       geom_boxplot(alpha = 0.5) + 
+        stat_compare_means() +
+       theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+
+# Correlation with other measures 
+ggplot(data = ss.soc, aes(x = ss.score, y = ss.soc$contextTask.score,  colour = demo.sex)) +
+       geom_point(alpha = 0.3, position = "jitter") +
+       geom_smooth(method = "lm", se = FALSE) + theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+
+# Correlation with other measures 
+ggplot(data = ooo.soc, aes(x = Odd.One.Out.score, y = contextTask.score,  colour = demo.sex)) +
+       geom_point(alpha = 0.3, position = "jitter") +
+       geom_smooth(method = "lm", se = FALSE) + theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+
+# Correlation with other measures 
+ggplot(data = ls.soc, aes(x = ls.soc$Latin.Square.score, y = contextTask.score,  colour = demo.sex)) +
+       geom_point(alpha = 0.3, position = "jitter") +
+       geom_smooth(method = "lm", se = FALSE) + theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+
+
+# Correlation with other measures 
+ggplot(data = ss.soc, aes(x = ss.score, y = socialLearning.score,  colour = demo.sex)) +
+       geom_point(alpha = 0.3, position = "jitter") +
+       geom_smooth(method = "loess", se = FALSE) + theme(text = element_text(size = 30), axis.text = element_text(size = 26))
+```
+
+
+# Attempting to do something sensible with age curves.. 
+```{r}
+library(lsmeans)
+
+
+dfr <- soc.df %>%
+  dplyr::select(user_id, mite.score, demo.age, demo.sex) %>% 
+  #gather(key = "demo", value = "k", K2B1_self:K2B1_other)        %>%   # long format 
+  #mutate(agent = factor(agent)) 
+  #mutate(demo.age = factor(demo.age)) %>%   
+  mutate(user_id = factor(user_id))                                  # factorise ID
+
+#dfr <- dfr[ which( dfr$demo.age < 30), ]
+dfr$demo.age <- as.factor(as.character(dfr$demo.age))
+dfr$user_id <- droplevels(dfr$user_id)
+
+#Wrong
+#F_model <- lm(mite.score ~ demo.age + demo.sex + demo.age:demo.sex, data = dfr)
+betterModel <- lm(mite.score ~ demo.age*demo.sex, data = dfr)
+#summary(betterModel)
+
+#anova(model)
+Anova(betterModel, type="II")
+
+
+#lsm = lsmeans(betterModel, ~demo.age*demo.sex)
+#contrast(lsm, interaction = "pairwise")
+
+```
+
+# Effect size function
+```{r}
+d <- function(arg1){
+  x <- mes(m.1=mean(subset(df.metrics, df.metrics$Group=="Control")[,arg1],na.rm = T), m.2=mean(subset(df.metrics, df.metrics$Group=="TBI")[,arg1], na.rm=T),
+           n.1=table(df.metrics$Group)[1],n.2 = table(df.metrics$Group)[2],
+           sd.1 = sd(subset(df.metrics, df.metrics$Group=="Control")[,arg1],na.rm = T),
+           sd.2=sd(subset(df.metrics, df.metrics$Group=="TBI")[,arg1], na.rm=T), verbose = F, dig = 4)  
+  return(list(arg1,x$d, x$l.d, x$u.d))
+}
+# Test if function works on one example variable
+d("AD_Cingulate_R")
+
+names(df.metrics) # 3-106 are metrics of interest
+# Run function across list of variables of interest
+y <- lapply(names(df.metrics[3:119]),d)
+z <- melt(matrix(unlist(y),4,117))
+
+a1 <- subset(z,z$Var1==1)[3]
+a2 <- subset(z,z$Var1==2)[3]
+a3 <- subset(z,z$Var1==3)[3]
+a4 <- subset(z,z$Var1==4)[3]
+
+a6 <- cbind(a1,a2, a3, a4)
+names(a6) <- c("roi","d", "l.d","u.d")
+```
+
+---
+# Normative data
+
+Prior to this step, it may be worth extra steps in cleaning the data - i.e. extream scores. 
+* Adams steps taken
+* 5 SD?
+* Filter by processing speed
+
+turn z-score into a function! 
+
+# Preparing norm data
+```{r}
+
+myvars <- c("user_id", "demo.age", "demo.sex", "EQ.score")
+df.n <- soc.df[myvars]
+
+inVar <- df.n$EQ.score
+# Get standard scores for the population
+hist(inVar) #histogram
+#POPULATION PARAMETER CALCULATIONS
+pop_sd <- SD(inVar)*sqrt((length(inVar)-1)/(length(inVar)))
+pop_mean <- mean(inVar, na.rm = TRUE)
+
+# Create z-scores from population mean(sd)
+    n = length(inVar)
+    for (i in 1:n) {
+     df.n$z[i] <- (inVar[i] - pop_mean) / pop_sd
+    }
+
+outlierReplace = function(dataframe, cols, rows, newValue = NA) {
+    if (any(rows)) {
+        set(dataframe, rows, cols, newValue)
+    }
+}
+
+outlierReplace(df.n, "z", which(soc.df$z > 4), NA)
+outlierReplace(df.n, "z", which(soc.df$z < -4), NA)
+
+df.n <- na.omit(df.n)
+df.n <- df.n[ which(df.n$demo.sex=='Male'), ] # Female
+df.n <- df.n[ which(df.n$demo.age < 70), ]
+
+```
+# Norming
+```{r}
+# install.packages("cNORM")
+# library(cNORM)
+
+# Displays the first lines of the data
+head(df.n)
+names(df.n)[names(df.n) == "demo.age"] <- "group"
+
+# Percentile generation by a sliding window of the size 'width'
+normData <- rankBySlidingWindow(data = df.n, age = "group", raw = "EQ.score",  width = 1) # group="demo.sex",
+#describeBy(normData2) # group="demo.sex"
+
+# Calculation of powers and interactions up to k = 4
+normData2 <- computePowers(normData, k = 4, norm = NULL, age = "group")
+
+# modeling
+model <- bestModel(normData2)
+
+# If you want to have a look at the selection procedure, all the information is available in ‘model$subsets’. The variable selection process per step is listed in ‘outmat’ and ‘which’. There, you can find the R2, R2adjusted, Cp and BIC:
+printSubset(model)
+
+# Furthermore, information about the change of Radjusted and other information criteria (Mallow’s Cp or BIC) depending on the number of predictors (with fixed k) can also be graphically inspected. Please use the following command to do this:
+plotSubset(model, type = 0) 
+
+# Plots the fitted and the manifest percentiles
+plot <- plotPercentiles(normData, model)
+summary(model)
+getNormCurve(50, model, minAge = 10, maxAge = 60, step = 0.25, minRaw = 0, maxRaw = 80)
+
+# Generate norm table for grade 3
+normTable(c(15,16,17,18,19,20), model, minRaw = 10, maxRaw = 80, minNorm=10, maxNorm=100, step = 1)
+
+# You as well can generate multiple tables at once, by providing a vector for the age groups,
+# here for grade 3, 3.5, 4 and 4.5
+normTables <- normTable(c(3.5, 4.5), model, minRaw = 0, maxRaw = 80, 
+              minNorm=30, maxNorm=70, step = 1)
+
+# In case, you want to use the data for producing paper and pencil tests, you might
+# want to export the data. Here, this is demonstratet with an export to Excel:
+# Install psych package
+# install.packages("openxlsx", dependencies = TRUE)
+# install.packages("xlsx")
+# library(xlsx)
+# write.xlsx(normTables, file="normtables.xlsx")
+
+```
+
+
+# tmp Norming
+```{r}
+# install.packages("cNORM")
+ library(cNORM)
+
+# Displays the first lines of the data
+head(df.n)
+
+names(df.n)[names(df.n) == "demo.age"] <- "group"
+
+# Percentile generation by a sliding window of the size 'width'
+normData2 <- rankBySlidingWindow(data = df.n, age = "group", raw = "EQ.score",  width = 0.5) # group="demo.sex",
+describeBy(normData2) # group="demo.sex"
+
+
+# Calculation of powers and interactions up to k = 4
+normData <- computePowers(normData2, k = 4, norm = NULL, age = "group")  # , covariate = "demo.sex"
+
+#> Multiple R2 between raw score and explanatory variable: R2 = 0.5138
+
+# modeling
+model <- bestModel(normData)
+
+# If you want to have a look at the selection procedure, all the information is available in ‘model$subsets’. The variable selection process per step is listed in ‘outmat’ and ‘which’. There, you can find the R2, R2adjusted, Cp and BIC:
+printSubset(model)
+
+# Furthermore, information about the change of Radjusted and other information criteria (Mallow’s Cp or BIC) depending on the number of predictors (with fixed k) can also be graphically inspected. Please use the following command to do this:
+plotSubset(model, type = 0) 
+
+# Plots the fitted and the manifest percentiles
+plot <- plotPercentiles(normData, model)
+
+getNormCurve(50, model, minAge = 2, maxAge = 5, step = 0.25, minRaw = 0, maxRaw = 28)
+
+# Generate norm table for grade 3
+normTable(c(15,16,17,18,19,20), model, minRaw = 10, maxRaw = 28, minNorm=10, maxNorm=100, step = 1)
+
+# You as well can generate multiple tables at once, by providing a vector for the age groups,
+# here for grade 3, 3.5, 4 and 4.5
+normTables <- normTable(c(3.5, 4.5), model, minRaw = 0, maxRaw = 28, 
+              minNorm=30, maxNorm=70, step = 1)
+
+# In case, you want to use the data for producing paper and pencil tests, you might
+# want to export the data. Here, this is demonstratet with an export to Excel:
+# Install psych package
+install.packages("openxlsx", dependencies = TRUE)
+install.packages("xlsx")
+library(xlsx)
+write.xlsx(normTables, file="normtables.xlsx")
+```
+
+
+
+## TMP reverse scoring Big 5 personality
+```{r}
+
+myvars <- c("user_id", "demo.age", "demo.sex", "Op", "Cp", "Ep","Ap", "Np") # "demo.age", "demo.sex",
+POMP.df <- soc.df[myvars]
+
+f.pomp <- POMP.df[ which(POMP.df$demo.sex=='Female'), ]
+m.pomp <- POMP.df[ which(POMP.df$demo.sex=='Male'), ]
+
+# Radar plot
+rp.f.pomp <- as.data.frame(mean(f.pomp$Op, na.rm = TRUE))
+rp.f.pomp$C <- mean(f.pomp$Cp, na.rm = TRUE)
+rp.f.pomp$E <- mean(f.pomp$Ep, na.rm = TRUE)
+rp.f.pomp$A <- mean(f.pomp$Ap, na.rm = TRUE)
+rp.f.pomp$N <- mean(f.pomp$Np, na.rm = TRUE)
+colnames(rp.f.pomp)[1] <- "O"
+
+rp.m.pomp <- as.data.frame(mean(m.pomp$Op, na.rm = TRUE))
+rp.m.pomp$C <- mean(m.pomp$Cp, na.rm = TRUE)
+rp.m.pomp$E <- mean(m.pomp$Ep, na.rm = TRUE)
+rp.m.pomp$A <- mean(m.pomp$Ap, na.rm = TRUE)
+rp.m.pomp$N <- mean(m.pomp$Np, na.rm = TRUE)
+colnames(rp.m.pomp)[1] <- "O"
+
+data <- rbind(rep(100,5) , rep(0,5) , rp.f.pomp, rp.m.pomp)
+#rownames(data)[1] <- "Min"
+#rownames(data)[2] <- "Max"
+rownames(data)[3] <- "Female"
+rownames(data)[4] <- "Male"
+
+# Custom the radarChart !
+#par(mar=c(0,0,0,0))
+par(mar=rep(0,4))
+par(mfrow=c(1,2))
+
+# Set graphic colors
+library(RColorBrewer)
+coul <-  brewer.pal(4, "Set1") # colPalette
+colors_border <- coul
+library(scales)
+colors_in <- alpha(coul,0.3)
+
+# pcol=rgb(0.2, 0.5, 0.5, 0.9) ,
+
+radarchart(data, axistype=1,
+          #custom polygon
+          pcol=colors_border, pfcol=colors_in , plwd=4 , 
+          #custom the grid
+          cglcol="grey", cglty=1, axislabcol="grey", caxislabels=seq(20,100,20), cglwd=0.8,
+          #custom labels
+          vlcex=0.8 
+          )
+legend(x=0.8, y=1, legend = rownames(data), bty = "n", pch=20 , col=colors_in , text.col = "grey", cex=1.6, pt.cex=3)
+
+# Barplot
+# p6 <- data %>% slice(3) %>% t() %>% as.data.frame() %>% add_rownames() %>% arrange(V1) %>% mutate(rowname=factor(rowname, rowname)) %>%
+# 
+#   ggplot( aes(x=rowname, y=V1)) +
+#     geom_segment( aes(x=rowname ,xend=rowname, y=0, yend=V1), color="grey") +
+#     geom_point(size=5, color="#69b3a2") +
+#     coord_flip() +
+#     #theme_ipsum() +
+#     theme(
+#       panel.grid.minor.y = element_blank(),
+#       panel.grid.major.y = element_blank(),
+#       axis.text = element_text( size=20 ),
+#       legend.position="none") +
+#     ylim(0,100) +
+#     ylab("mark") +
+#     xlab("")
+# 
+# ggdraw(p6)
+
+# alt to lolipop plot
+myvars <- c("user_id","demo.sex","demo.age", "Op", "Cp", "Ep","Ap", "Np") # "demo.age", "demo.sex",
+big5.df <- soc.df[myvars]
+big5.m <- melt(data = big5.df, id.vars = c("demo.sex","demo.age"), measure.vars = c("Op", "Cp", "Ep","Ap", "Np"))
+
+# Automatically by ranked order is no longer working??
+big5.m$variable <- factor(big5.m$variable, levels = c('Ep', 'Np', 'Op', 'Ap','Cp'), ordered = TRUE)
+p1 <- ggplot(data = big5.m, aes(x = fct_reorder(variable, value, .fun = mean), y = value, colour = demo.sex)) + #
+        geom_point(size = pointSize, alpha = 0.5, position = position_jitterdodge(jitter.width = NULL, jitter.height = 0.8, dodge.width = 0.75, seed = NA)) +
+        geom_boxplot(size = 1, alpha = 0, colour = "black", outlier.shape = NA) +
+        theme(text = element_text(size = 24), axis.text = element_text(size = 20), legend.position = "none") +
+        labs(title="The Big 5",x="Dimension (Ranked order)", y = "POMP", colour = "Gender") +
+        coord_flip()
+p1
+
+```
+
+
