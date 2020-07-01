@@ -6,7 +6,12 @@ https://github.com/Nialljb/xnat2bids
 ## Image preprocessing & analysis:
 
 _bash_  
-- HPC (PBS) submission wrapper  
+- HPC (PBS) submission wrapper
+- Randomise for PBS (fsl adaptation)
+- search tfce files for p<0.05
+- FreeSufer for PBS
+- SBR (Signal Binding Ratio) calculation
+- Make ROI
 
 _Jupyter_  
 - Volumetric analysis  
