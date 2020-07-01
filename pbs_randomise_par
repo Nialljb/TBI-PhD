@@ -1,0 +1,234 @@
+#!/bin/sh
+
+#   Adaptation of the original fsl_randomise script (GSE) to work with Imperial HPC (PBS)
+#   V2.0 Sept 2019
+#
+#   n.bourke@imperial.ac.uk
+#   gregory.scott99@imperial.ac.uk
+#
+#   Copyright (C) 2012 University of Oxford
+#
+#   Part of FSL - FMRIB's Software Library
+#   http://www.fmrib.ox.ac.uk/fsl
+#   fsl@fmrib.ox.ac.uk
+#
+
+
+Usage() {
+  cat <<EOF
+    ___________ _   ____
+   / ____|__  // | / / /
+  / /     /_ </  |/ / /
+ / /___ ___/ / /|  / /___
+ \____//____/_/ |_/_____/
+
+ Adaptation of the original fsl_randomise script (GSE) to work with Imperial College London HPC (PBS)
+ V2.0 Sept 2019
+ n.bourke@imperial.ac.uk
+ gregory.scott99@imperial.ac.uk
+
+usage:  pbs_randomise_par -wt <walltime> -mem <memory> <randomise options>
+
+e.g.  pbs_randomise_par -wt 10:00:00 -mem 16Gb -i all_FA -o output_dir -m mask....
+
+
+*Walltime and memory usage in the format
+wt=01:00:00
+mem=4Gb
+
+
+EOF
+  exit 1
+}
+
+export LC_ALL=C
+if [ $# -le 3 ] ; then
+  echo "$0 <randomise options>"
+  echo ""
+  echo "Actual number of permutations performed may differ slightly from those
+  requested due to tasking an equal number of permutations per fragment."
+  echo ""
+  echo "Caution: if a design has less unique permutations than those requested,
+  the defragment script will not work correctly!"
+  exit 1
+fi
+
+# while [ $# -ge 8 ];
+# do
+#
+#   case "$1" in
+#
+# 		-wt)
+# 					walltime=$2;
+#           mem=$4
+#           #input=$6
+# 					shift;;
+#           #;;
+#   esac
+#   shift
+# done
+
+walltime=$2;
+mem=$4;
+echo " Walltime = $walltime "
+echo " Mem = $mem "
+
+shift 4 # shift elements from input list
+echo "Randomise Input: $@"
+
+RANDOMISE_OUTPUT=`$FSLDIR/bin/randomise $@ -Q` # take all input parsed to script
+if [ $? != 0 ] ; then
+  echo "ERROR: Randomise could not succesfully initialise with the command line given. Submission aborted."
+  exit 1
+fi
+
+echo "RANDOMISE_OUTPUT: $RANDOMISE_OUTPUT"
+echo
+
+
+PERMS=`echo $RANDOMISE_OUTPUT | awk '{print $1}'` # Will print the first of three arguments from the piped input
+CONTRASTS=`echo $RANDOMISE_OUTPUT | awk '{print $2}'`
+ROOTNAME=`echo $RANDOMISE_OUTPUT | awk '{print $3}'`
+BASENAME=`basename $ROOTNAME`
+DIRNAME=`dirname $ROOTNAME`
+
+echo "Dirname is: $DIRNAME"
+
+PERMS_PER_SLOT=`echo $RANDOMISE_OUTPUT | awk '{print $4}'`
+
+SLOTS_PER_CONTRAST=`expr $PERMS / $PERMS_PER_SLOT`
+
+if [ $SLOTS_PER_CONTRAST -lt 1 ] ; then
+    SLOTS_PER_CONTRAST=1
+fi
+
+PERMS_PER_CONTRAST=`expr $PERMS_PER_SLOT \* $SLOTS_PER_CONTRAST`
+
+REQUESTED_SLOTS=`expr $CONTRASTS \* $SLOTS_PER_CONTRAST`
+
+CORRECTED_PERMS=`expr $PERMS_PER_CONTRAST - $SLOTS_PER_CONTRAST`
+CORRECTED_PERMS=`expr $CORRECTED_PERMS + 1`
+
+echo "Generating" $REQUESTED_SLOTS "fragments for " $CONTRASTS " contrasts with " $PERMS_PER_SLOT "permutations per fragment. Allocating" ${REQUESTED_TIME} "minutes per fragment."
+echo "The total number of permutations per contrast will be" $PERMS_PER_CONTRAST "."
+
+#stage 1:
+CURRENT_SEED=1
+if [ -e ${DIRNAME}/${BASENAME}.generate ] ; then
+  /bin/rm ${DIRNAME}/${BASENAME}.generate
+fi
+while [ $CURRENT_SEED -le $SLOTS_PER_CONTRAST ] ; do
+  SLEEPTIME=`expr 1 \* $CURRENT_SEED`
+  CURRENT_CONTRAST=1
+  while [ $CURRENT_CONTRAST -le $CONTRASTS ] ; do
+      if [ ${CONTRASTS} -ne 1 ]; then
+	  SKIPTO=" --skipTo=$CURRENT_CONTRAST "
+      fi
+	echo "${FSLDIR}/bin/randomise $@ -n $PERMS_PER_SLOT -o ${ROOTNAME}_SEED${CURRENT_SEED} --seed=$CURRENT_SEED ${SKIPTO}" >> ${DIRNAME}/${BASENAME}.generate
+      CURRENT_CONTRAST=`expr $CURRENT_CONTRAST + 1`
+  done
+  echo done $CURRENT_SEED
+  CURRENT_SEED=`expr $CURRENT_SEED + 1`
+done
+chmod a+x ${DIRNAME}/${BASENAME}.generate
+
+NUMJOBS=`wc -l < ${DIRNAME}/${BASENAME}.generate`; # Get number of seeds from generate file
+
+# Setup pbs submission file
+pbsfile=`mktemp`;
+echo "#!/bin/sh" > $pbsfile;
+echo "#PBS -l walltime=${walltime}" >> $pbsfile;
+echo "#PBS -l select=1:ncpus=1:mem=${mem}" >> $pbsfile;
+echo "#PBS -J 1-${NUMJOBS}" >> $pbsfile;
+echo "cmd=\`sed \"\${PBS_ARRAY_INDEX}q;d\" ${DIRNAME}/${BASENAME}.generate\`" >> $pbsfile;
+echo "\${cmd}" >> $pbsfile;
+
+echo "******"
+echo "pbsfile is ${pbsfile}"
+cat $pbsfile
+echo "******"
+GENERATE_ID=`qsub ${pbsfile}`;
+echo ""
+
+#stage2:
+cat <<combineScript > ${DIRNAME}/${BASENAME}.defragment
+#!/bin/sh
+echo "Merging stat images"
+for FIRSTSEED in \`imglob -extension ${ROOTNAME}_SEED1_*_p_* ${ROOTNAME}_SEED1_*_corrp_*\` ; do
+  ADDCOMMAND=""
+  ACTIVESEED=1
+  if [ -e \$FIRSTSEED ] ; then
+    while [ \$ACTIVESEED -le $SLOTS_PER_CONTRAST ] ; do
+      ADDCOMMAND=\`echo \$ADDCOMMAND -add \${FIRSTSEED/_SEED1_/_SEED\${ACTIVESEED}_}\`
+      ACTIVESEED=\`expr \$ACTIVESEED + 1\`
+    done
+    ADDCOMMAND=\${ADDCOMMAND#-add}
+    echo \$ADDCOMMAND
+    \$FSLDIR/bin/fslmaths \$ADDCOMMAND -mul $PERMS_PER_SLOT -div $CORRECTED_PERMS \${FIRSTSEED/_SEED1/}
+  fi
+done
+
+echo "Merging text files"
+for FIRSTSEED in ${ROOTNAME}_SEED1_*perm_*.txt ${ROOTNAME}_SEED1_*_p_*.txt ${ROOTNAME}_SEED1_*_corrp_*.txt ; do
+  ACTIVESEED=1
+  if [ -e \$FIRSTSEED ] ; then
+    while [ \$ACTIVESEED -le $SLOTS_PER_CONTRAST ] ; do
+      if [ \$ACTIVESEED -eq 1 ] ; then
+         cat \${FIRSTSEED/_SEED1_/_SEED\${ACTIVESEED}_} >> \${FIRSTSEED/_SEED1/}
+      else
+         tail -n +2 \${FIRSTSEED/_SEED1_/_SEED\${ACTIVESEED}_} >> \${FIRSTSEED/_SEED1/}
+      fi
+      ACTIVESEED=\`expr \$ACTIVESEED + 1\`
+    done
+  fi
+done
+
+echo "Renaming raw stats"
+for TYPE in _ _tfce_ ; do
+  for FIRSTSEED in \`imglob -extension ${ROOTNAME}_SEED1\${TYPE}tstat* ${ROOTNAME}_SEED1\${TYPE}fstat*\` ; do
+    if [ -e \$FIRSTSEED ] ; then
+      cp \$FIRSTSEED \${FIRSTSEED/_SEED1/}
+    fi
+  done
+done
+
+ACTIVESEED=1
+while [ \$ACTIVESEED -le $SLOTS_PER_CONTRAST ] ; do
+  rm -rf ${ROOTNAME}_SEED\${ACTIVESEED}*_p_*
+  rm -rf ${ROOTNAME}_SEED\${ACTIVESEED}*_corrp_*
+  rm -rf \`imglob -extensions ${ROOTNAME}_SEED\${ACTIVESEED}*stat????\`
+  rm -rf \`imglob -extensions ${ROOTNAME}_SEED\${ACTIVESEED}*stat???\`
+  rm -rf \`imglob -extensions ${ROOTNAME}_SEED\${ACTIVESEED}*stat??\`
+  rm -rf \`imglob -extensions ${ROOTNAME}_SEED\${ACTIVESEED}*stat?\`
+  rm -rf ${ROOTNAME}_SEED\${ACTIVESEED}_*perm_*.txt ${ROOTNAME}_SEED\${ACTIVESEED}_*_p_*.txt ${ROOTNAME}_SEED\${ACTIVESEED}_*_corrp_*.txt
+
+  ACTIVESEED=\`expr \$ACTIVESEED + 1\`
+done
+
+echo "Done"
+combineScript
+chmod +x ${DIRNAME}/${BASENAME}.defragment
+
+DEFRAGMENT_TIME=20
+if [ ${REQUESTED_SLOTS} -ge 150 ] ; then
+  DEFRAGMENT_TIME=40
+fi
+
+# Create submission script
+pbsfile_depend=`mktemp`;
+# PBS submission variables..
+wt=02:00:00
+ncpu=1
+memDep=8Gb
+echo "#!/bin/sh" > $pbsfile_depend;
+echo "#PBS -l walltime=${wt}" >> $pbsfile_depend;
+echo "#PBS -l select=1:ncpus=${ncpu}:mem=${memDep}" >> $pbsfile_depend;
+echo "#PBS -W depend=afterok:$GENERATE_ID" >> $pbsfile_depend;
+echo ${DIRNAME}/${BASENAME}.defragment >> $pbsfile_depend;
+
+echo "******"
+echo "pbsfile_depend is: "
+cat $pbsfile_depend
+echo "******"
+# Submit
+qsub ${pbsfile_depend};
