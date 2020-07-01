@@ -1,0 +1,71 @@
+#!/bin/sh
+
+Usage() {
+  cat <<EOF
+    ___________ _   ____
+   / ____|__  // | / / /
+  / /     /_ </  |/ / /
+ / /___ ___/ / /|  / /___
+ \____//____/_/ |_/_____/
+
+ Niall J. Bourke Imperial College London March 2019
+ n.bourke@imperial.ac.uk
+
+Get SBR (signal binding ration) for DAT by taking the region of interest and a region of non-specific DAT binding
+formula = (region of interest counts − background counts]/background counts)
+
+
+usage:  SBR -i <input> -m <mask>
+
+Compulsory arguments (You MUST set one or more of):
+	-i <input>	DAT input image
+  -m <mask> Occcipital mask in DAT input image space
+
+output will be named by appending 'SBR_DAT' to input image
+
+e.g. SBR -i /home/data/DREAM001/DREAM001_DAT_MNI.nii.gz -m /home/templates/MNI_occ.nii.gz
+
+EOF
+  exit 1
+}
+
+if [  $# -le 2 ];
+  then
+  Usage
+  exit 1
+ fi
+
+while [ $# -ge 1 ];
+do
+  case "$1" in
+
+		-i)
+					input=$2;
+          mask=$4
+					shift;;
+  esac
+  shift
+done
+
+  echo " Input job = $input "
+
+  BASENAME=`basename $input`
+  DIRNAME=`dirname $input`
+  ID=`basename $DIRNAME`
+
+# Calculate the count for the ROI
+function occ {
+fslstats ${DIRNAME}/${BASENAME} -k ${mask} -m
+}
+i=$(occ)
+
+# Create SBR image by subtracting and dividing the DAT input image from the values of the nonspecific tracer uptake region.
+fslmaths ${DIRNAME}/${BASENAME} -sub ${i} -div ${i} ${DIRNAME}/SBR_${BASENAME}
+
+# Calculate scores for data
+mkdir -p ${DIRNAME}/DAT_stats
+
+for ROIS in `ls ~/templates/NiallStriatum/*nii.gz`; do
+  echo `basename $ROIS` > ${DIRNAME}/DAT_stats/${ID}_DAT_stats.txt
+fslstats ${DIRNAME}/SBR_${BASENAME} -k $ROIS -M >> ${DIRNAME}/DAT_stats/${ID}_DAT_stats.txt
+done
