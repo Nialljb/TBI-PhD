@@ -1,0 +1,85 @@
+#!/bin/sh
+
+Usage() {
+  cat <<EOF
+    ___________ _   ____
+   / ____|__  // | / / /
+  / /     /_ </  |/ / /
+ / /___ ___/ / /|  / /___
+ \____//____/_/ |_/_____/
+
+ Niall J. Bourke Imperial College London Jan 2020
+ n.bourke@imperial.ac.uk
+
+V1.2
+
+usage:  pbsFreesurfer -i <Subject> <session> <workingDir>
+
+e.g. pbsFreesurfer -i ${subj} ${ses} ${workingDir}
+
+Please note job should be submitted to queue.
+
+EOF
+  exit 1
+}
+
+if [  $# -le 3 ];
+  then
+  Usage
+  exit 1
+ fi
+
+while [ $# -ge 3 ];
+do
+  case "$1" in
+
+		-i)
+					subj=$2;
+          ses=$3
+					EXPERIMENT_DIR=$4;
+
+  esac
+  shift
+done
+
+
+  echo " Input job = $subj "
+  echo " session: $ses "
+  echo " exp DIR: $EXPERIMENT_DIR "
+
+# Setup packages
+module load freesurfer
+module load fsl
+module load matlab
+module load anaconda3/personal
+source activate py27
+
+# Set path to fsl software
+# setenv('PATH', [ getenv('PATH'),':/apps/fsl/5.0.8/fsl/bin']);
+# setenv('FSLDIR', '/apps/fsl/5.0.8/fsl');
+# setenv('FSLOUTPUTTYPE', 'NIFTI_GZ');
+
+
+# Flirting T1s and Diffusion
+    # flirt -in ${root}/${subject}/t1.nii.gz -ref ${root}/${subject}/data.nii.gz -out ${root}/${subject}/t1w_acpc.nii.gz -omat ${root}/${subject}/t1Translation2dwi.mat -dof 6 -cost mutualinfo -searchcost mutualinfo
+    # bet ${root}/${subject}/t1w_acpc.nii.gz ${root}/${subject}/t1w_acpc_brain.nii.gz
+
+# FreeSurfer bit
+
+# ** This bit needs to be adapted for data paths e.g. HCP, BIDS, personal setup
+
+# Main folder for the whole project
+ #export EXPERIMENT_DIR=$4
+ export source=/rds/general/project/c3nl_djs_imaging_data/live/data/sourcedata/
+
+# Path to the FreeSurfer folder
+export SUBJECTS_DIR=${EXPERIMENT_DIR}/reconAll/sub-${subj}/${ses}/anat/T1w/
+export TMPDIR=${SUBJECTS_DIR}/tmp
+mkdir -p ${TMPDIR}
+
+#  Path to the structural image
+ export subjT1=${source}/sub-${subj}/${ses}/anat/T1w/sub-${subj}_${ses}_T1w.nii
+
+# Create surface model with FreeSurfer ==
+ recon-all -i $subjT1 -s $SUBJECTS_DIR -all -qcache
+# -openmp <n> at the end of -recon all specifies amount of CPUs to use.
