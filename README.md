@@ -29,5 +29,5 @@ _Python_
 - Physical & mental health questionnaire (PMHQ)  
 - Cognitrack - emotional processing  
 - Cognitrack - metaAnalysis   
-- BBC Collective Intellegence  
+- BBC Collective intelligence  
 - Effort analysis  
